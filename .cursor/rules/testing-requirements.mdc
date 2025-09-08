@@ -1,0 +1,262 @@
+---
+globs: test_*.py,*_test.py,*.test.ts,*.test.tsx
+description: Testing strategy and required test cases for deterministic correctness
+---
+
+# Testing Requirements - Critical for Deterministic Correctness
+
+## Engine Unit Tests (CRITICAL - MUST PASS)
+
+### Golden Test Vector (NON-NEGOTIABLE)
+```python
+# test_pump_engine.py
+def test_golden_vector_expert():
+    """Golden test case that MUST pass for deterministic correctness"""
+    server_seed = "564e967b90f03d0153fdcb2d2d1cc5a5057e0df78163611fe3801d6498e681ca"
+    client_seed = "zXv1upuFns"
+    nonce = 5663
+    difficulty = "expert"
+
+    result = verify_pump(server_seed, client_seed, nonce, difficulty)
+
+    # CRITICAL: Must match exactly
+    assert abs(result["max_multiplier"] - 11200.65) < 1e-9
+    assert result["pop_point"] == 5
+    assert result["max_pumps"] == 4
+```
+
+### Difficulty Coverage Tests (REQUIRED)
+```python
+def test_each_difficulty():
+    """Test one case per difficulty to ensure multiplier tables work"""
+    test_cases = [
+        ("easy", expected_easy_result),
+        ("medium", expected_medium_result),
+        ("hard", expected_hard_result),
+        ("expert", 11200.65),  # Golden vector
+    ]
+
+    for difficulty, expected in test_cases:
+        result = verify_pump(server_seed, client_seed, nonce, difficulty)
+        assert abs(result["max_multiplier"] - expected) < 1e-9
+```
+
+### Boundary Condition Tests
+```python
+def test_boundary_conditions():
+    """Test edge cases for pump logic"""
+    # Test minimum safe pumps (pop_point = 1)
+    # Test maximum safe pumps (pop_point = 25)
+    # Test single nonce range (start = end)
+    # Test minimal and maximal M values per difficulty
+```
+
+### Multiplier Table Validation (CRITICAL)
+```python
+def test_multiplier_table_lengths():
+    """Validate table lengths match expected formula"""
+    from engine.pump import MULTIPLIER_TABLES, M_VALUES
+
+    for difficulty, M in M_VALUES.items():
+        expected_length = 25 - M + 1
+        actual_length = len(MULTIPLIER_TABLES[difficulty])
+        assert actual_length == expected_length, f"{difficulty}: expected {expected_length}, got {actual_length}"
+```
+
+### Determinism Tests (CRITICAL)
+```python
+def test_deterministic_results():
+    """Identical inputs must produce identical outputs"""
+    server_seed = "test_seed"
+    client_seed = "test_client"
+    start, end = 1, 1000
+    difficulty = "medium"
+    targets = [1.11, 2.33, 4.95]
+
+    # Run same analysis twice
+    result1 = scan_pump(server_seed, client_seed, start, end, difficulty, targets)
+    result2 = scan_pump(server_seed, client_seed, start, end, difficulty, targets)
+
+    # Results must be identical (except timestamps)
+    assert result1[0] == result2[0]  # hits_by_target
+    assert result1[1]["max_multiplier"] == result2[1]["max_multiplier"]
+    assert result1[1]["counts_by_target"] == result2[1]["counts_by_target"]
+```
+
+## API Integration Tests (REQUIRED)
+
+### End-to-End API Flow
+```python
+# test_api_e2e.py
+import pytest
+from httpx import AsyncClient
+
+@pytest.mark.asyncio
+async def test_complete_flow(client: AsyncClient):
+    """Test full create -> list -> detail -> export flow"""
+
+    # 1. Create small run
+    create_payload = {
+        "server_seed": "test_server_seed",
+        "client_seed": "test_client",
+        "start": 1,
+        "end": 100,
+        "difficulty": "easy",
+        "targets": [1.02, 1.06, 1.11]
+    }
+
+    response = await client.post("/runs", json=create_payload)
+    assert response.status_code == 201
+    run_detail = response.json()
+    run_id = run_detail["id"]
+
+    # 2. Verify run appears in list
+    response = await client.get("/runs")
+    assert response.status_code == 200
+    runs = response.json()
+    assert any(r["id"] == run_id for r in runs)
+
+    # 3. Get run details
+    response = await client.get(f"/runs/{run_id}")
+    assert response.status_code == 200
+
+    # 4. Get hits with pagination
+    response = await client.get(f"/runs/{run_id}/hits?limit=10")
+    assert response.status_code == 200
+    hits_page = response.json()
+    assert "total" in hits_page
+    assert "rows" in hits_page
+
+    # 5. Test CSV exports return proper headers
+    response = await client.get(f"/runs/{run_id}/export/hits.csv")
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "text/csv"
+```
+
+### Validation Tests
+```python
+@pytest.mark.asyncio
+async def test_input_validation(client: AsyncClient):
+    """Test API validation rules"""
+
+    # Test invalid difficulty
+    response = await client.post("/runs", json={
+        "server_seed": "test",
+        "client_seed": "test",
+        "start": 1,
+        "end": 10,
+        "difficulty": "invalid",  # Should fail
+        "targets": [1.0]
+    })
+    assert response.status_code == 422
+
+    # Test range too large
+    response = await client.post("/runs", json={
+        "server_seed": "test",
+        "client_seed": "test",
+        "start": 1,
+        "end": 1000000,  # Exceeds MAX_NONCES
+        "difficulty": "easy",
+        "targets": [1.0]
+    })
+    assert response.status_code == 413
+
+    # Test empty targets
+    response = await client.post("/runs", json={
+        "server_seed": "test",
+        "client_seed": "test",
+        "start": 1,
+        "end": 10,
+        "difficulty": "easy",
+        "targets": []  # Should fail
+    })
+    assert response.status_code == 422
+```
+
+### Verify Endpoint Test
+```python
+@pytest.mark.asyncio
+async def test_verify_endpoint(client: AsyncClient):
+    """Test single nonce verification"""
+    response = await client.get("/verify", params={
+        "server_seed": "564e967b90f03d0153fdcb2d2d1cc5a5057e0df78163611fe3801d6498e681ca",
+        "client_seed": "zXv1upuFns",
+        "nonce": 5663,
+        "difficulty": "expert"
+    })
+
+    assert response.status_code == 200
+    result = response.json()
+    assert abs(result["max_multiplier"] - 11200.65) < 1e-9
+    assert result["pop_point"] == 5
+    assert result["max_pumps"] == 4
+```
+
+## Performance Tests
+
+### Timing Benchmarks
+```python
+import time
+
+def test_performance_requirements():
+    """Verify performance meets targets"""
+    server_seed = "test_seed"
+    client_seed = "test_client"
+    difficulty = "medium"
+    targets = [1.11, 2.33]
+
+    # Test 200k nonces in <= 10 seconds
+    start_time = time.time()
+    result = scan_pump(server_seed, client_seed, 1, 200000, difficulty, targets)
+    duration = time.time() - start_time
+
+    assert duration <= 10.0, f"200k nonces took {duration:.2f}s, expected <= 10s"
+    assert result[1]["count"] == 200000
+```
+
+## Database Tests
+
+### Model Validation
+```python
+def test_run_model_validation():
+    """Test SQLModel validation rules"""
+    from models.runs import Run
+
+    # Test nonce_end >= nonce_start constraint
+    with pytest.raises(ValueError):
+        Run(
+            server_seed="test",
+            client_seed="test",
+            nonce_start=100,
+            nonce_end=50,  # Invalid: end < start
+            difficulty="easy",
+            targets_json="[1.0]"
+        )
+```
+
+## Test Configuration
+
+### Pytest Setup
+```python
+# conftest.py
+import pytest
+from httpx import AsyncClient
+from app.main import app
+
+@pytest.fixture
+async def client():
+    async with AsyncClient(app=app, base_url="http://test") as ac:
+        yield ac
+```
+
+### Test Data
+```python
+# Use consistent test vectors across all tests
+GOLDEN_VECTOR = {
+    "server_seed": "564e967b90f03d0153fdcb2d2d1cc5a5057e0df78163611fe3801d6498e681ca",
+    "client_seed": "zXv1upuFns",
+    "nonce": 5663,
+    "difficulty": "expert",
+    "expected_multiplier": 11200.65
+}
+```

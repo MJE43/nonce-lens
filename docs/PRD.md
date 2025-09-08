@@ -47,6 +47,50 @@ Stake implements provably-fair gaming where each game outcome is cryptographical
 
 ---
 
+
+Repo structure (target)
+pump-api/
+  app/
+    __init__.py
+    main.py
+    core/
+      __init__.py
+      config.py
+    db.py
+    engine/
+      __init__.py
+      pump.py
+    models/
+      __init__.py
+      runs.py
+    routers/
+      __init__.py
+      runs.py
+      verify.py
+    schemas/
+      __init__.py
+      runs.py
+  tests/
+    test_pump_engine.py
+    test_api_e2e.py
+  .env.example
+  pyproject.toml or requirements.txt
+
+pump-web/
+  index.html
+  vite.config.ts
+  src/
+    main.tsx
+    App.tsx
+    index.css
+    lib/api.ts
+    pages/
+      RunsList.tsx
+      NewRun.tsx
+      RunDetail.tsx
+  .env.example
+
+
 ## 2) Background & Definitions
 
 ### 1.1 Provably‑fair model (as implemented here)

@@ -1,0 +1,176 @@
+---
+globs: *.py,models/*.py,db.py
+description: SQLModel database schema and relationship definitions
+---
+
+# Database Schema Implementation (SQLModel + SQLite)
+
+## Table Definitions (REQUIRED)
+
+### runs Table
+```python
+from sqlmodel import SQLModel, Field
+from datetime import datetime
+from uuid import UUID, uuid4
+
+class Run(SQLModel, table=True):
+    __tablename__ = "runs"
+
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    server_seed: str
+    server_seed_sha256: str  # SHA256 hex of server_seed string
+    client_seed: str
+    nonce_start: int
+    nonce_end: int
+    difficulty: str  # "easy" | "medium" | "hard" | "expert"
+    targets_json: str  # JSON array of target multipliers
+    duration_ms: int
+    engine_version: str
+    summary_json: str  # Summary stats as JSON
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+```
+
+### hits Table
+```python
+class Hit(SQLModel, table=True):
+    __tablename__ = "hits"
+
+    id: int | None = Field(default=None, primary_key=True)
+    run_id: UUID = Field(foreign_key="runs.id")
+    nonce: int
+    max_multiplier: float
+
+    # Index for efficient queries
+    __table_args__ = (
+        Index("ix_hits_run_nonce", "run_id", "nonce"),
+    )
+```
+
+## Database Constraints (CRITICAL)
+
+### Validation Constraints
+```python
+# In Run model validation
+@validator('nonce_end')
+def validate_nonce_range(cls, v, values):
+    if 'nonce_start' in values and v < values['nonce_start']:
+        raise ValueError('nonce_end must be >= nonce_start')
+    return v
+
+@validator('difficulty')
+def validate_difficulty(cls, v):
+    if v not in {"easy", "medium", "hard", "expert"}:
+        raise ValueError('Invalid difficulty')
+    return v
+
+@validator('targets_json')
+def validate_targets_json(cls, v):
+    try:
+        targets = json.loads(v)
+        if not isinstance(targets, list) or len(targets) == 0:
+            raise ValueError('targets must be non-empty array')
+        return v
+    except json.JSONDecodeError:
+        raise ValueError('Invalid JSON in targets')
+```
+
+### Foreign Key Cascade
+```python
+# Configure ON DELETE CASCADE
+class Hit(SQLModel, table=True):
+    run_id: UUID = Field(
+        foreign_key="runs.id",
+        ondelete="CASCADE"  # Delete hits when run is deleted
+    )
+```
+
+## Database Setup
+
+### Connection and Engine
+```python
+# db.py
+from sqlmodel import create_engine, SQLModel
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
+
+DATABASE_URL = "sqlite+aiosqlite:///./pump.db"
+
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,  # Set to True for SQL debugging
+    connect_args={"check_same_thread": False}
+)
+
+async def create_db_and_tables():
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+```
+
+### Session Management
+```python
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import sessionmaker
+
+AsyncSessionLocal = sessionmaker(
+    engine, class_=AsyncSession, expire_on_commit=False
+)
+
+async def get_session():
+    async with AsyncSessionLocal() as session:
+        yield session
+```
+
+## Query Patterns (REQUIRED)
+
+### Efficient Hits Querying
+```python
+# With pagination and optional filtering
+async def get_hits(
+    session: AsyncSession,
+    run_id: UUID,
+    min_multiplier: float | None = None,
+    limit: int = 100,
+    offset: int = 0
+):
+    query = select(Hit).where(Hit.run_id == run_id)
+
+    if min_multiplier is not None:
+        query = query.where(Hit.max_multiplier >= min_multiplier)
+
+    query = query.order_by(Hit.nonce).offset(offset).limit(limit)
+    result = await session.exec(query)
+    return result.all()
+```
+
+### SHA256 Hash Generation
+```python
+import hashlib
+
+def generate_seed_hash(server_seed: str) -> str:
+    """Generate SHA256 hash of server seed for list display"""
+    return hashlib.sha256(server_seed.encode('utf-8')).hexdigest()
+```
+
+## JSON Field Handling
+
+### Serialization Helpers
+```python
+import json
+
+def serialize_targets(targets: list[float]) -> str:
+    """Convert target list to JSON string"""
+    # Remove duplicates and sort for consistency
+    unique_targets = sorted(set(targets))
+    return json.dumps(unique_targets)
+
+def deserialize_targets(targets_json: str) -> list[float]:
+    """Parse JSON targets back to list"""
+    return json.loads(targets_json)
+```
+
+## Database Initialization
+```python
+# In main.py startup
+@app.on_event("startup")
+async def startup():
+    await create_db_and_tables()
+```

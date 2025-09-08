@@ -1,0 +1,262 @@
+---
+globs: *.tsx,*.ts,*.jsx,*.js
+description: React frontend implementation requirements and component specifications
+---
+
+# React Frontend Implementation Guide
+
+## Tech Stack Requirements
+- **React 18** with TypeScript
+- **Vite** for build tooling
+- **TanStack Query** for data fetching and caching
+- **Tailwind CSS** for styling
+- **React Router** for navigation
+
+## Page Components (REQUIRED)
+
+### RunsList.tsx - Main List View
+```tsx
+// Features required:
+// - Table with columns: Created, Seed Hash, Client Seed, Difficulty, Range, Duration, Target Counts
+// - Search by client_seed substring
+// - Filter by difficulty dropdown
+// - Pagination (50 per page default)
+// - Click row to navigate to detail view
+// - "New Run" button in header
+
+interface RunListItem {
+  id: string;
+  created_at: string;
+  server_seed_sha256: string; // First 10 chars for display
+  client_seed: string;
+  difficulty: string;
+  nonce_start: number;
+  nonce_end: number;
+  duration_ms: number;
+  counts_by_target: Record<string, number>;
+}
+```
+
+### NewRun.tsx - Create Analysis Form
+```tsx
+// Form fields required:
+// - server_seed: textarea (multi-line for long hex strings)
+// - client_seed: text input
+// - start: number input (default: 1, min: 1)
+// - end: number input (min: start value)
+// - difficulty: select dropdown
+// - targets: text input (comma-separated floats)
+
+// Validation rules:
+// - All fields required
+// - Parse targets by comma, strip whitespace, convert to float
+// - Remove duplicates and NaN values
+// - Show validation errors below fields
+// - Disable submit button while submitting
+
+interface RunCreateForm {
+  server_seed: string;
+  client_seed: string;
+  start: number;
+  end: number;
+  difficulty: "easy" | "medium" | "hard" | "expert";
+  targets: string; // User input as comma-separated string
+}
+```
+
+### RunDetail.tsx - Analysis Results View
+```tsx
+// Sections required:
+// 1. Summary card: inputs, summary stats, engine version
+// 2. Action buttons: Download hits.csv, Download full.csv, Duplicate
+// 3. Hits table: nonce | max_multiplier with min_multiplier filter
+// 4. Pagination for hits (100 per page default)
+
+// CSV download: Direct links to API endpoints
+// Duplicate: Navigate to /new with form pre-filled
+
+interface RunDetail {
+  id: string;
+  server_seed: string; // Full seed shown in detail
+  client_seed: string;
+  nonce_start: number;
+  nonce_end: number;
+  difficulty: string;
+  targets: number[];
+  duration_ms: number;
+  engine_version: string;
+  summary: {
+    count: number;
+    max_multiplier: number;
+    median_multiplier: number;
+    counts_by_target: Record<string, number>;
+  };
+}
+```
+
+## API Client (lib/api.ts)
+
+### HTTP Client Setup
+```typescript
+import axios from 'axios';
+
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+
+export const apiClient = axios.create({
+  baseURL: API_BASE,
+  headers: {
+    'Content-Type': 'application/json',
+  },
+});
+
+// Response interceptor for error handling
+apiClient.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    // Extract error message from API error format
+    const message = error.response?.data?.error?.message || 'An error occurred';
+    throw new Error(message);
+  }
+);
+```
+
+### API Functions
+```typescript
+export const runsApi = {
+  // List runs with optional filters
+  list: (params?: {
+    limit?: number;
+    offset?: number;
+    search?: string;
+    difficulty?: string;
+  }) => apiClient.get('/runs', { params }),
+
+  // Create new run
+  create: (data: RunCreateRequest) => apiClient.post('/runs', data),
+
+  // Get run details
+  get: (id: string) => apiClient.get(`/runs/${id}`),
+
+  // Get paginated hits
+  getHits: (id: string, params?: {
+    min_multiplier?: number;
+    limit?: number;
+    offset?: number;
+  }) => apiClient.get(`/runs/${id}/hits`, { params }),
+
+  // CSV export URLs (direct links, not API calls)
+  getHitsCsvUrl: (id: string) => `${API_BASE}/runs/${id}/export/hits.csv`,
+  getFullCsvUrl: (id: string) => `${API_BASE}/runs/${id}/export/full.csv`,
+};
+
+export const verifyApi = {
+  verify: (params: {
+    server_seed: string;
+    client_seed: string;
+    nonce: number;
+    difficulty: string;
+  }) => apiClient.get('/verify', { params }),
+};
+```
+
+## TanStack Query Hooks
+
+### Data Fetching Hooks
+```typescript
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+
+// List runs with filters
+export const useRuns = (filters?: RunListFilters) => {
+  return useQuery({
+    queryKey: ['runs', filters],
+    queryFn: () => runsApi.list(filters),
+    keepPreviousData: true, // For pagination
+  });
+};
+
+// Run details
+export const useRun = (id: string) => {
+  return useQuery({
+    queryKey: ['runs', id],
+    queryFn: () => runsApi.get(id),
+    enabled: !!id,
+  });
+};
+
+// Create run mutation
+export const useCreateRun = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: runsApi.create,
+    onSuccess: () => {
+      // Invalidate runs list to show new run
+      queryClient.invalidateQueries(['runs']);
+    },
+  });
+};
+```
+
+## Styling Guidelines
+
+### Tailwind CSS Classes
+```tsx
+// Use consistent spacing and colors
+const styles = {
+  // Layout
+  container: "max-w-7xl mx-auto px-4 sm:px-6 lg:px-8",
+
+  // Cards
+  card: "bg-white shadow rounded-lg border border-gray-200",
+  cardHeader: "px-6 py-4 border-b border-gray-200",
+  cardBody: "p-6",
+
+  // Tables
+  table: "min-w-full divide-y divide-gray-200",
+  tableHeader: "bg-gray-50 px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider",
+  tableCell: "px-6 py-4 whitespace-nowrap text-sm text-gray-900",
+
+  // Forms
+  input: "mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500",
+  button: "inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500",
+};
+```
+
+## Navigation and Routing
+```tsx
+// App.tsx routing structure
+import { Routes, Route } from 'react-router-dom';
+
+function App() {
+  return (
+    <div className="min-h-screen bg-gray-50">
+      <nav className="bg-white shadow">
+        {/* Navigation header with links */}
+      </nav>
+
+      <main className="max-w-7xl mx-auto py-6">
+        <Routes>
+          <Route path="/" element={<RunsList />} />
+          <Route path="/new" element={<NewRun />} />
+          <Route path="/runs/:id" element={<RunDetail />} />
+        </Routes>
+      </main>
+    </div>
+  );
+}
+```
+
+## Error Handling and Loading States
+```tsx
+// Show loading spinners and error messages consistently
+if (isLoading) return <LoadingSpinner />;
+if (error) return <ErrorMessage message={error.message} />;
+
+// Toast notifications for success/error feedback
+import { toast } from 'react-hot-toast';
+
+const mutation = useMutation({
+  onSuccess: () => toast.success('Run created successfully!'),
+  onError: (error) => toast.error(error.message),
+});
+```
