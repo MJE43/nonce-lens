@@ -33,6 +33,7 @@ class Settings:
     database_url: str
     api_cors_origins: List[str]
     max_nonces: int
+    ingest_token: str | None
 
 
 def get_settings() -> Settings:
@@ -46,8 +47,13 @@ def get_settings() -> Settings:
     except ValueError:
         max_nonces = 500_000
 
+    ingest_token = os.getenv("INGEST_TOKEN")
+    if ingest_token == "":
+        ingest_token = None
+
     return Settings(
         database_url=database_url,
         api_cors_origins=api_cors_origins,
         max_nonces=max_nonces,
+        ingest_token=ingest_token,
     )

@@ -4,6 +4,8 @@ import NewRun from "./pages/NewRun";
 import RunDetail from "./pages/RunDetail";
 import RunsList from "./pages/RunsList";
 import Header from "./components/Header"; // Import the new Header
+import LiveStreamDetail from "./pages/LiveStreamDetail";
+import LiveStreamsList from "./pages/LiveStreamsList";
 
 function App() {
   return (
@@ -25,6 +27,8 @@ function App() {
               <Route path="/" element={<RunsList />} />
               <Route path="/new" element={<NewRun />} />
               <Route path="/runs/:id" element={<RunDetail />} />
+              <Route path="/live" element={<LiveStreamsList />} />
+              <Route path="/live/:id" element={<LiveStreamDetail />} />
             </Routes>
           </div>
         </main>

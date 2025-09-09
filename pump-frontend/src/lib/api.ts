@@ -472,3 +472,87 @@ export const distancesApi = {
     return url.toString();
   },
 };
+
+// Live Streams API Types
+export interface StreamSummary {
+  id: string;
+  serverSeedHashed: string;
+  clientSeed: string;
+  createdAt: string;
+  lastSeenAt: string;
+  totalBets: number;
+  highestMultiplier: number;
+  notes?: string;
+}
+
+export interface StreamDetail {
+  id: string;
+  serverSeedHashed: string;
+  clientSeed: string;
+  createdAt: string;
+  lastSeenAt: string;
+  totalBets: number;
+  highestMultiplier: number;
+  notes?: string;
+}
+
+export interface BetRecord {
+  id: number;
+  antebotBetId: string;
+  receivedAt: string;
+  dateTime?: string;
+  nonce: number;
+  amount: number;
+  payoutMultiplier: number;
+  payout: number;
+  difficulty: "easy" | "medium" | "hard" | "expert";
+  roundTarget?: number;
+  roundResult?: number;
+}
+
+export interface TailResponse {
+  bets: BetRecord[];
+  lastId: number;
+}
+
+export interface StreamListFilters {
+  limit?: number;
+  offset?: number;
+}
+
+export interface StreamBetsFilters {
+  minMultiplier?: number;
+  limit?: number;
+  offset?: number;
+  order?: "nonce_asc" | "id_desc";
+}
+
+// Live Streams API
+export const liveStreamsApi = {
+  // List all streams
+  list: (params?: StreamListFilters) =>
+    apiClient.get<{ streams: StreamSummary[]; total: number }>("/live/streams", { params }),
+
+  // Get stream details
+  get: (id: string) => apiClient.get<StreamDetail>(`/live/streams/${id}`),
+
+  // Get stream bets with pagination
+  getBets: (id: string, params?: StreamBetsFilters) =>
+    apiClient.get<{ total: number; bets: BetRecord[] }>(`/live/streams/${id}/bets`, { params }),
+
+  // Get incremental updates
+  tail: (id: string, sinceId: number) =>
+    apiClient.get<TailResponse>(`/live/streams/${id}/tail`, { 
+      params: { since_id: sinceId } 
+    }),
+
+  // Delete stream
+  delete: (id: string) => apiClient.delete(`/live/streams/${id}`),
+
+  // Update stream
+  update: (id: string, data: { notes?: string }) =>
+    apiClient.put<StreamDetail>(`/live/streams/${id}`, data),
+
+  // Export CSV
+  getExportCsvUrl: (id: string) => `${API_BASE}/live/streams/${id}/export.csv`,
+};

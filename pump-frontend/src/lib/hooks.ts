@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { runsApi, verifyApi } from "./api";
-import type { RunListFilters, HitsFilters, RunCreateRequest } from "./api";
+import { runsApi, verifyApi, liveStreamsApi } from "./api";
+import type { RunListFilters, HitsFilters, RunCreateRequest, StreamListFilters, StreamBetsFilters } from "./api";
 
 // List runs with filters
 export const useRuns = (filters?: RunListFilters) => {
@@ -55,5 +55,66 @@ export const useVerify = () => {
       nonce: number;
       difficulty: string;
     }) => verifyApi.verify(params).then((res) => res.data),
+  });
+};
+
+// Live Streams hooks
+
+// List live streams with filters
+export const useLiveStreams = (filters?: StreamListFilters) => {
+  return useQuery({
+    queryKey: ["liveStreams", filters],
+    queryFn: () => liveStreamsApi.list(filters).then((res) => res.data),
+    staleTime: 30 * 1000, // 30 seconds - shorter for live data
+    refetchInterval: 5 * 1000, // Auto-refetch every 5 seconds
+  });
+};
+
+// Stream details
+export const useStreamDetail = (id: string) => {
+  return useQuery({
+    queryKey: ["liveStreams", id],
+    queryFn: () => liveStreamsApi.get(id).then((res) => res.data),
+    enabled: !!id,
+    staleTime: 30 * 1000, // 30 seconds
+  });
+};
+
+// Stream bets with pagination
+export const useStreamBets = (id: string, filters?: StreamBetsFilters) => {
+  return useQuery({
+    queryKey: ["liveStreams", id, "bets", filters],
+    queryFn: () => liveStreamsApi.getBets(id, filters).then((res) => res.data),
+    enabled: !!id,
+    staleTime: 10 * 1000, // 10 seconds
+  });
+};
+
+// Delete stream mutation
+export const useDeleteStream = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (id: string) => liveStreamsApi.delete(id),
+    onSuccess: () => {
+      // Invalidate streams list to remove deleted stream
+      queryClient.invalidateQueries({ queryKey: ["liveStreams"] });
+    },
+  });
+};
+
+// Update stream mutation
+export const useUpdateStream = () => {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { notes?: string } }) =>
+      liveStreamsApi.update(id, data).then((res) => res.data),
+    onSuccess: (data) => {
+      // Update specific stream in cache
+      queryClient.setQueryData(["liveStreams", data.id], data);
+      // Invalidate streams list to update summary
+      queryClient.invalidateQueries({ queryKey: ["liveStreams"] });
+    },
   });
 };
