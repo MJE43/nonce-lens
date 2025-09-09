@@ -313,7 +313,7 @@ export interface HitsFilters {
   min_multiplier?: number;
   limit?: number;
   offset?: number;
-  include_distance?: "per_multiplier";
+  include_distance?: "per_multiplier" | "filtered";
   tol?: number;
 }
 
@@ -413,7 +413,10 @@ export const runsApi = {
     apiClient.get<{ runs: RunListItem[]; total: number }>("/runs", { params }),
 
   // Create new run
-  create: (data: RunCreateRequest) => apiClient.post<RunDetail>("/runs", data),
+  create: (
+    data: RunCreateRequest,
+    config?: import("axios").AxiosRequestConfig
+  ) => apiClient.post<RunDetail>("/runs", data, config),
 
   // Get run details
   get: (id: string) => apiClient.get<RunDetail>(`/runs/${id}`),

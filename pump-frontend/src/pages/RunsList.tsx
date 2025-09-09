@@ -1,22 +1,13 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { useRuns } from "../lib/hooks";
 import {
-  Search,
-  Plus,
-  Filter,
-  Clock,
-  Hash,
-  Target,
-  Zap,
-  Calendar,
-  TrendingUp,
-  ChevronLeft,
-  ChevronRight,
-  MoreHorizontal,
-  Eye,
-  Copy,
-} from "lucide-react";
+  getPendingRuns,
+  clearStalePending,
+  removePendingRun,
+  findMatchingRunId,
+} from "../lib/pending";
+import { Plus, Calendar, TrendingUp } from "lucide-react";
 
 // ShadCN Components - importing one by one
 import { Button } from "@/components/ui/button";
@@ -29,17 +20,49 @@ import {
 } from "@/components/ui/card";
 
 const RunsList = () => {
-  const [search, setSearch] = useState("");
-  const [difficulty, setDifficulty] = useState("");
-  const [page, setPage] = useState(0);
+  const [search] = useState("");
+  const [difficulty] = useState("");
+  const [page] = useState(0);
   const limit = 50;
 
-  const { data, isLoading, error } = useRuns({
+  const { data, isLoading, error, refetch } = useRuns({
     search: search || undefined,
     difficulty: difficulty || undefined,
     limit,
     offset: page * limit,
   });
+
+  const [pending, setPending] = useState(getPendingRuns());
+
+  // Keep pending store tidy
+  useEffect(() => {
+    clearStalePending();
+    setPending(getPendingRuns());
+  }, []);
+
+  // While there are pending runs, poll the runs list to discover completion
+  useEffect(() => {
+    if (pending.length === 0) return;
+    const id = setInterval(async () => {
+      const res = await refetch();
+      const runs = res.data?.runs || [];
+      let changed = false;
+      pending.forEach((p) => {
+        const matchId = findMatchingRunId(runs, {
+          client_seed: p.client_seed,
+          difficulty: p.difficulty,
+          start: p.start,
+          end: p.end,
+        });
+        if (matchId) {
+          removePendingRun(p.id);
+          changed = true;
+        }
+      });
+      if (changed) setPending(getPendingRuns());
+    }, 2000);
+    return () => clearInterval(id);
+  }, [pending, refetch]);
 
   if (isLoading) {
     return (
@@ -110,6 +133,45 @@ const RunsList = () => {
             </Link>
           </Button>
         </div>
+
+        {/* Processing jobs */}
+        {pending.length > 0 && (
+          <Card className="bg-amber-900/20 border-amber-500/40">
+            <CardHeader>
+              <CardTitle className="text-amber-300">Processing Jobs</CardTitle>
+              <CardDescription className="text-amber-200/80">
+                These runs are processing on the server. This list will update
+                automatically.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-2">
+                {pending.map((p) => (
+                  <div
+                    key={p.id}
+                    className="p-4 bg-amber-900/20 rounded-lg border border-amber-500/30"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <p className="text-amber-100 font-mono text-sm">
+                          {p.client_seed}
+                        </p>
+                        <p className="text-amber-200/80 text-xs capitalize">
+                          {p.difficulty} · {p.start.toLocaleString()} -{" "}
+                          {p.end.toLocaleString()}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 text-amber-200">
+                        <span className="w-3 h-3 rounded-full bg-amber-400 animate-pulse"></span>
+                        Processing…
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Simple results for now */}
         <Card className="bg-slate-800/50 backdrop-blur-xl border-slate-700/50 shadow-2xl">

@@ -298,7 +298,7 @@ const RunDetail = () => {
     min_multiplier: minMultiplier,
     limit: hitsLimit,
     offset: hitsPage * hitsLimit,
-    include_distance: "per_multiplier",
+    include_distance: "filtered",
   });
 
   const hits = hitsData?.rows || [];

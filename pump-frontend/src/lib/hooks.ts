@@ -37,7 +37,8 @@ export const useCreateRun = () => {
 
   return useMutation({
     mutationFn: (data: RunCreateRequest) =>
-      runsApi.create(data).then((res) => res.data),
+      // Use a long timeout for potentially long-running create runs
+      runsApi.create(data, { timeout: 300000 }).then((res) => res.data),
     onSuccess: () => {
       // Invalidate runs list to show new run
       queryClient.invalidateQueries({ queryKey: ["runs"] });

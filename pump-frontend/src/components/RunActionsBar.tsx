@@ -98,7 +98,7 @@ export const RunActionsBar: React.FC<RunActionsBarProps> = ({
     <div className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 max-w-screen-2xl items-center justify-between px-4">
         {/* Left section - Primary Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-3">
           <Button
             variant="outline"
             size="sm"
@@ -111,47 +111,51 @@ export const RunActionsBar: React.FC<RunActionsBarProps> = ({
 
           <Separator orientation="vertical" className="h-6" />
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => copyToClipboard(run.server_seed, "Server seed")}
-            className="gap-2"
-          >
-            <ClipboardDocumentIcon className="h-4 w-4" />
-            Copy Server
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => copyToClipboard(run.server_seed, "Server seed")}
+              className="gap-2"
+            >
+              <ClipboardDocumentIcon className="h-4 w-4" />
+              Copy Server
+            </Button>
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => copyToClipboard(run.client_seed, "Client seed")}
-            className="gap-2"
-          >
-            <ClipboardDocumentIcon className="h-4 w-4" />
-            Copy Client
-          </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => copyToClipboard(run.client_seed, "Client seed")}
+              className="gap-2"
+            >
+              <ClipboardDocumentIcon className="h-4 w-4" />
+              Copy Client
+            </Button>
+          </div>
 
           <Separator orientation="vertical" className="h-6" />
 
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => handleDownload("hits")}
-            className="gap-2"
-          >
-            <ArrowDownTrayIcon className="h-4 w-4" />
-            Hits CSV
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => handleDownload("hits")}
+              className="gap-2"
+            >
+              <ArrowDownTrayIcon className="h-4 w-4" />
+              Hits CSV
+            </Button>
 
-          <Button
-            variant="default"
-            size="sm"
-            onClick={() => handleDownload("full")}
-            className="gap-2"
-          >
-            <ArrowDownTrayIcon className="h-4 w-4" />
-            Full CSV
-          </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={() => handleDownload("full")}
+              className="gap-2"
+            >
+              <ArrowDownTrayIcon className="h-4 w-4" />
+              Full CSV
+            </Button>
+          </div>
         </div>
 
         {/* Right section - Filters and Navigation */}
@@ -160,7 +164,7 @@ export const RunActionsBar: React.FC<RunActionsBarProps> = ({
           <div className="flex items-center gap-2">
             <label
               htmlFor="minMultiplier"
-              className="text-sm font-medium text-muted-foreground"
+              className="text-sm font-medium text-muted-foreground whitespace-nowrap"
             >
               Min Multiplier:
             </label>
@@ -172,7 +176,7 @@ export const RunActionsBar: React.FC<RunActionsBarProps> = ({
               value={minMultiplier || ""}
               onChange={handleMinMultiplierChange}
               placeholder="All"
-              className="w-24 h-8"
+              className="w-20 h-8"
             />
           </div>
 
@@ -182,7 +186,7 @@ export const RunActionsBar: React.FC<RunActionsBarProps> = ({
           <div className="flex items-center gap-2">
             <label
               htmlFor="jumpToNonce"
-              className="text-sm font-medium text-muted-foreground"
+              className="text-sm font-medium text-muted-foreground whitespace-nowrap"
             >
               Jump to Nonce:
             </label>
@@ -195,7 +199,7 @@ export const RunActionsBar: React.FC<RunActionsBarProps> = ({
                 value={jumpToNonceValue}
                 onChange={(e) => setJumpToNonceValue(e.target.value)}
                 placeholder={`${run.nonce_start}-${run.nonce_end}`}
-                className="w-32 h-8"
+                className="w-28 h-8"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") {
                     handleJumpToNonce();

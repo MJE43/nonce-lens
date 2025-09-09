@@ -261,8 +261,8 @@ async def get_hits(
     total_res = await session.execute(total_q)
     total = int(total_res.scalar())
 
-    # If distance not requested, return regular rows
-    if include_distance != "per_multiplier":
+    # If distance not requested or unknown mode, return regular rows
+    if include_distance not in {"per_multiplier", "filtered"}:
         rows_q = (
             select(Hit).where(*where).order_by(Hit.nonce).offset(offset).limit(limit)
         )
@@ -273,11 +273,15 @@ async def get_hits(
             rows=[HitRow(nonce=h.nonce, max_multiplier=h.max_multiplier) for h in rows],
         )
 
-    # Include per-multiplier distance_prev using SQLAlchemy window function
-    lag_prev = func.lag(Hit.nonce).over(
-        partition_by=Hit.max_multiplier, order_by=Hit.nonce
-    )
-    distance_prev = (Hit.nonce - lag_prev).label("distance_prev")
+    # Build statement depending on distance mode
+    if include_distance == "per_multiplier":
+        lag_prev = func.lag(Hit.nonce).over(
+            partition_by=Hit.max_multiplier, order_by=Hit.nonce
+        )
+        distance_prev = (Hit.nonce - lag_prev).label("distance_prev")
+    else:  # include_distance == "filtered" -> consecutive filtered hits
+        lag_prev = func.lag(Hit.nonce).over(order_by=Hit.nonce)
+        distance_prev = (Hit.nonce - lag_prev).label("distance_prev")
 
     stmt = (
         select(Hit.nonce, Hit.max_multiplier, distance_prev)

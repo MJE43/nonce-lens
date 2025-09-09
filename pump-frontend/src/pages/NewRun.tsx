@@ -1,7 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import { useCreateRun } from "../lib/hooks";
+import { runsApi, getErrorDetails } from "../lib/api";
+import {
+  addPendingRun,
+  removePendingRun,
+  findMatchingRunId,
+} from "../lib/pending";
 import {
   Calculator,
   Zap,
@@ -44,6 +50,11 @@ const NewRun = () => {
   const navigate = useNavigate();
   const createRunMutation = useCreateRun();
   const [searchParams] = useSearchParams();
+  const pollTimer = useRef<number | null>(null);
+  const [processing, setProcessing] = useState<{
+    pendingId: string;
+    message: string;
+  } | null>(null);
 
   // Difficulty-aware suggested target multipliers (exact table values per PRD)
   const DIFFICULTY_SUGGESTIONS: Record<
@@ -73,7 +84,14 @@ const NewRun = () => {
       (difficulty as "easy" | "medium" | "hard" | "expert") || "medium"
     ];
 
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<{
+    server_seed: string;
+    client_seed: string;
+    start: number;
+    end: number;
+    difficulty: "easy" | "medium" | "hard" | "expert";
+    targets: number[];
+  }>({
     server_seed: "",
     client_seed: "",
     start: 1,
@@ -180,6 +198,60 @@ const NewRun = () => {
       toast.success("Analysis run created successfully!");
       navigate(`/runs/${result.id}`);
     } catch (error) {
+      const details = getErrorDetails(error);
+      if (details?.type === "timeout") {
+        // Register a pending run locally and start polling the runs list
+        const pending = addPendingRun({
+          server_seed: formData.server_seed.trim(),
+          client_seed: formData.client_seed.trim(),
+          start: formData.start,
+          end: formData.end,
+          difficulty: formData.difficulty,
+          targets: uniqueTargets,
+        });
+
+        setProcessing({
+          pendingId: pending.id,
+          message: "Processing on server…",
+        });
+
+        // Poll every 2s for up to 10 minutes
+        const started = Date.now();
+        const poll = async () => {
+          try {
+            const res = await runsApi
+              .list({
+                search: formData.client_seed,
+                difficulty: formData.difficulty,
+              })
+              .then((r) => r.data);
+            const id = findMatchingRunId(res.runs || [], {
+              client_seed: formData.client_seed.trim(),
+              difficulty: formData.difficulty,
+              start: formData.start,
+              end: formData.end,
+            });
+            if (id) {
+              removePendingRun(pending.id);
+              setProcessing(null);
+              toast.success("Run completed!");
+              navigate(`/runs/${id}`);
+              return;
+            }
+          } catch {
+            // ignore transient errors
+          }
+          if (Date.now() - started < 10 * 60 * 1000) {
+            pollTimer.current = window.setTimeout(poll, 2000);
+          } else {
+            setProcessing(null);
+            toast.error("Timed out waiting for run to complete.");
+          }
+        };
+        poll();
+        return;
+      }
+
       toast.error(
         error instanceof Error ? error.message : "Failed to create run"
       );
@@ -235,6 +307,30 @@ const NewRun = () => {
             using our provably-fair deterministic engine.
           </p>
         </div>
+
+        {/* Processing Overlay */}
+        {processing && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+            <div className="bg-slate-900/80 border border-slate-700/50 rounded-2xl p-8 max-w-md w-full text-center backdrop-blur">
+              <div className="w-10 h-10 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mx-auto mb-4"></div>
+              <h2 className="text-white text-xl font-semibold mb-2">
+                Creating analysis run…
+              </h2>
+              <p className="text-slate-300 mb-6">
+                {processing.message} This page will redirect once complete.
+              </p>
+              <div className="flex items-center justify-center gap-3">
+                <Button
+                  asChild
+                  variant="outline"
+                  className="bg-slate-800/50 border-slate-600/50 text-slate-300"
+                >
+                  <a href="/">Go to Runs</a>
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Main Form Card */}
         <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-2xl overflow-hidden">
