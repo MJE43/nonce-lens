@@ -1,8 +1,52 @@
 import { useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
-import { toast } from "react-hot-toast";
-import { useRun, useRunHits } from "../lib/hooks";
-import { runsApi } from "../lib/api";
+import {
+  Link,
+  useNavigate,
+  useParams,
+} from 'react-router-dom';
+import { toast } from 'react-hot-toast';
+import { useRun, useRunHits } from '../lib/hooks';
+import { runsApi } from '../lib/api';
+import {
+  ArrowDownTrayIcon,
+  DocumentDuplicateIcon,
+  ChevronLeftIcon,
+  ChevronRightIcon,
+} from '@heroicons/react/24/outline';
+
+const StatCard = ({
+  label,
+  value,
+  unit,
+  className = '',
+}: {
+  label: string;
+  value: React.ReactNode;
+  unit?: string;
+  className?: string;
+}) => (
+  <div className={` ${className}`}>
+    <dt
+      className="text-sm font-medium"
+      style={{ color: 'var(--color-text-secondary)' }}
+    >
+      {label}
+    </dt>
+    <dd className="mt-1 flex items-baseline gap-x-2">
+      <span className="text-2xl font-semibold tracking-tight">
+        {value}
+      </span>
+      {unit && (
+        <span
+          className="text-sm"
+          style={{ color: 'var(--color-text-tertiary)' }}
+        >
+          {unit}
+        </span>
+      )}
+    </dd>
+  </div>
+);
 
 const RunDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -12,7 +56,11 @@ const RunDetail = () => {
   const [hitsPage, setHitsPage] = useState(0);
   const hitsLimit = 100;
 
-  const { data: run, isLoading: runLoading, error: runError } = useRun(id!);
+  const {
+    data: run,
+    isLoading: runLoading,
+    error: runError,
+  } = useRun(id!);
   const { data: hitsData, isLoading: hitsLoading } = useRunHits(id!, {
     min_multiplier: minMultiplier,
     limit: hitsLimit,
@@ -26,18 +74,28 @@ const RunDetail = () => {
   if (runLoading) {
     return (
       <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <div
+          className="animate-spin rounded-full h-8 w-8 border-b-2"
+          style={{ borderColor: 'var(--color-primary-500)' }}
+        ></div>
       </div>
     );
   }
 
   if (runError || !run) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-md p-4">
-        <div className="text-red-800">
-          Error loading run: {runError?.message || "Run not found"}
+      <div
+        className="rounded-md p-4"
+        style={{ backgroundColor: '#2c1919', borderColor: '#5a2525' }}
+      >
+        <div style={{ color: '#f8b4b4' }}>
+          Error loading run: {runError?.message || 'Run not found'}
         </div>
-        <Link to="/" className="mt-2 text-blue-600 hover:underline">
+        <Link
+          to="/"
+          className="mt-2 hover:underline"
+          style={{ color: 'var(--color-primary-500)' }}
+        >
           ← Back to runs
         </Link>
       </div>
@@ -49,16 +107,14 @@ const RunDetail = () => {
   const hitsTotalPages = Math.ceil(hitsTotal / hitsLimit);
 
   const formatDuration = (ms: number) => {
-    const seconds = Math.round(ms / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}m ${remainingSeconds}s`;
+    if (ms < 1000) return `${ms}ms`;
+    const seconds = (ms / 1000).toFixed(2);
+    return `${seconds}s`;
   };
 
   const formatRange = (start: number, end: number) => {
     const count = end - start + 1;
-    return `${start.toLocaleString()}-${end.toLocaleString()} (${count.toLocaleString()} nonces)`;
+    return `${start.toLocaleString()}-${end.toLocaleString()} (${count.toLocaleString()})`;
   };
 
   const handleDuplicate = () => {
@@ -68,19 +124,16 @@ const RunDetail = () => {
       start: run.nonce_start.toString(),
       end: run.nonce_end.toString(),
       difficulty: run.difficulty,
-      targets: run.targets.join(","),
+      targets: run.targets.join(','),
     });
     navigate(`/new?${params.toString()}`);
   };
 
-  const handleDownloadHits = () => {
-    const url = runsApi.getHitsCsvUrl(id);
-    window.open(url, "_blank");
-  };
-
-  const handleDownloadFull = () => {
-    const url = runsApi.getFullCsvUrl(id);
-    window.open(url, "_blank");
+  const handleDownload = (type: 'hits' | 'full') => {
+    const url = type === 'hits'
+        ? runsApi.getHitsCsvUrl(id)
+        : runsApi.getFullCsvUrl(id);
+    window.open(url, '_blank');
   };
 
   const copyToClipboard = (text: string, label: string) => {
@@ -90,184 +143,288 @@ const RunDetail = () => {
         toast.success(`${label} copied to clipboard`);
       })
       .catch(() => {
-        toast.error("Failed to copy to clipboard");
+        toast.error('Failed to copy to clipboard');
       });
   };
 
+  const difficultyColorClasses = {
+    easy: 'bg-green-400/10 text-green-400 ring-green-400/20',
+    medium: 'bg-yellow-400/10 text-yellow-400 ring-yellow-400/20',
+    hard: 'bg-orange-400/10 text-orange-400 ring-orange-400/20',
+    expert: 'bg-red-400/10 text-red-400 ring-red-400/20',
+  };
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-8 p-4 sm:p-6 lg:p-8">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <header className="flex flex-col sm:flex-row items-start sm:items-center sm:justify-between gap-4">
         <div>
-          <Link to="/" className="text-blue-600 hover:underline text-sm">
-            ← Back to runs
+          <Link
+            to="/"
+            className="text-sm inline-flex items-center gap-2 hover:underline"
+            style={{ color: 'var(--color-text-secondary)' }}
+          >
+            <ChevronLeftIcon className="h-4 w-4" />
+            Back to runs
           </Link>
-          <h1 className="mt-2 text-2xl font-bold text-gray-900">
+          <h1 className="mt-2 text-3xl font-bold tracking-tight text-white">
             Analysis Run Details
           </h1>
+          <p
+            className="mt-1 text-sm"
+            style={{ color: 'var(--color-text-tertiary)' }}
+          >
+            Run ID: {id}
+          </p>
         </div>
-        <div className="flex space-x-3">
+        <div className="flex-shrink-0 flex items-center gap-x-3">
           <button
             onClick={handleDuplicate}
-            className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+            className="flex items-center gap-x-2 rounded-md px-3 py-2 text-sm font-semibold ring-1 ring-inset"
+            style={{
+              backgroundColor: 'var(--color-surface)',
+              color: 'var(--color-text-secondary)',
+              borderColor: 'var(--color-border)',
+            }}
           >
+            <DocumentDuplicateIcon className="h-4 w-4" />
             Duplicate
           </button>
           <button
-            onClick={handleDownloadHits}
-            className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50"
+            onClick={() => handleDownload('hits')}
+            className="flex items-center gap-x-2 rounded-md px-3 py-2 text-sm font-semibold ring-1 ring-inset"
+            style={{
+              backgroundColor: 'var(--color-surface)',
+              color: 'var(--color-text-secondary)',
+              borderColor: 'var(--color-border)',
+            }}
           >
-            Download Hits CSV
+            <ArrowDownTrayIcon className="h-4 w-4" />
+            Hits CSV
           </button>
           <button
-            onClick={handleDownloadFull}
-            className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+            onClick={() => handleDownload('full')}
+            className="flex items-center gap-x-2 rounded-md px-3 py-2 text-sm font-semibold text-white"
+            style={{ backgroundColor: 'var(--color-primary-600)' }}
           >
-            Download Full CSV
+            <ArrowDownTrayIcon className="h-4 w-4" />
+            Full CSV
           </button>
         </div>
-      </div>
+      </header>
 
-      {/* Summary Card */}
-      <div className="bg-white shadow rounded-lg p-6">
-        <h2 className="text-lg font-semibold text-gray-900 mb-4">Summary</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div>
-            <dt className="text-sm font-medium text-gray-500">Range</dt>
-            <dd className="mt-1 text-sm text-gray-900">
-              {formatRange(run.nonce_start, run.nonce_end)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-gray-500">Duration</dt>
-            <dd className="mt-1 text-sm text-gray-900">
-              {formatDuration(run.duration_ms)}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-gray-500">Total Hits</dt>
-            <dd className="mt-1 text-sm text-gray-900">
-              {run.summary.count.toLocaleString()}
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-gray-500">
-              Max Multiplier
-            </dt>
-            <dd className="mt-1 text-sm text-gray-900">
-              {run.summary.max_multiplier.toFixed(2)}x
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-gray-500">Difficulty</dt>
-            <dd className="mt-1">
-              <span
-                className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                  run.difficulty === "easy"
-                    ? "bg-green-100 text-green-800"
-                    : run.difficulty === "medium"
-                    ? "bg-yellow-100 text-yellow-800"
-                    : run.difficulty === "hard"
-                    ? "bg-orange-100 text-orange-800"
-                    : "bg-red-100 text-red-800"
-                }`}
-              >
-                {run.difficulty}
-              </span>
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-gray-500">
-              Median Multiplier
-            </dt>
-            <dd className="mt-1 text-sm text-gray-900">
-              {run.summary.median_multiplier.toFixed(2)}x
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-gray-500">
-              Engine Version
-            </dt>
-            <dd className="mt-1 text-sm text-gray-900">{run.engine_version}</dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-gray-500">Targets</dt>
-            <dd className="mt-1 text-sm text-gray-900">
-              {run.targets.join(", ")}x
-            </dd>
-          </div>
-        </div>
-      </div>
+      {/* Main Content Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="lg:col-span-2 space-y-8">
+          {/* Summary Card */}
+          <div
+            className="rounded-lg border"
+            style={{
+              backgroundColor: 'var(--color-surface)',
+              borderColor: 'var(--color-border)',
+            }}
+          >
+            <div className="p-6">
+              <h2 className="text-base font-semibold leading-7">
+                Summary
+              </h2>
+              <dl className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-x-6 gap-y-8">
+                <StatCard
+                  label="Nonce Range"
+                  value={
+                    <div className="text-lg">
+                      {run.summary.count.toLocaleString()}
+                    </div>
+                  }
+                  unit={`(${run.nonce_start.toLocaleString()} - ${run.nonce_end.toLocaleString()})`}
+                />
+                <StatCard
+                  label="Duration"
+                  value={formatDuration(run.duration_ms)}
+                />
+                <StatCard
+                  label="Total Hits"
+                  value={hitsTotal.toLocaleString()}
+                />
+                <StatCard
+                  label="Max Multiplier"
+                  value={`${run.summary.max_multiplier.toFixed(2)}x`}
+                />
 
-      {/* Target Counts */}
-      <div className="bg-white shadow rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">
-          Target Counts
-        </h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-4">
-          {Object.entries(run.summary.counts_by_target)
-            .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]))
-            .map(([target, count]) => (
-              <div
-                key={target}
-                className="text-center p-3 bg-gray-50 rounded-lg"
-              >
-                <div className="text-lg font-semibold text-gray-900">
-                  {count.toLocaleString()}
+                <div>
+                  <dt
+                    className="text-sm font-medium"
+                    style={{ color: 'var(--color-text-secondary)' }}
+                  >
+                    Difficulty
+                  </dt>
+                  <dd className="mt-1">
+                    <span
+                      className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium capitalize ring-1 ring-inset ${
+                        difficultyColorClasses[
+                          run.difficulty as keyof typeof difficultyColorClasses
+                        ]
+                      }`}
+                    >
+                      {run.difficulty}
+                    </span>
+                  </dd>
                 </div>
-                <div className="text-sm text-gray-500">≥{target}x</div>
+                <StatCard
+                  label="Median Multiplier"
+                  value={`${run.summary.median_multiplier.toFixed(2)}x`}
+                />
+                <StatCard label="Engine" value={run.engine_version} />
+                <div className="sm:col-span-1">
+                  <dt
+                    className="text-sm font-medium"
+                    style={{ color: 'var(--color-text-secondary)' }}
+                  >
+                    Targets
+                  </dt>
+                  <dd className="mt-1 text-sm">{run.targets.join(', ')}x</dd>
+                </div>
+              </dl>
+            </div>
+          </div>
+          {/* Seeds */}
+          <div
+            className="rounded-lg border"
+            style={{
+              backgroundColor: 'var(--color-surface)',
+              borderColor: 'var(--color-border)',
+            }}
+          >
+            <div className="p-6">
+              <h2 className="text-base font-semibold leading-7">
+                Seeds
+              </h2>
+              <div className="mt-6 space-y-4">
+                <div>
+                  <dt
+                    className="text-sm font-medium"
+                    style={{ color: 'var(--color-text-secondary)' }}
+                  >
+                    Server Seed
+                  </dt>
+                  <dd className="mt-1 flex items-center gap-x-2">
+                    <code className="flex-1 text-sm font-mono rounded px-2 py-1 truncate"
+                      style={{
+                        backgroundColor: 'var(--color-background)',
+                        color: 'var(--color-text-secondary)',
+                      }}
+                    >
+                      {run.server_seed}
+                    </code>
+                    <button
+                      onClick={() =>
+                        copyToClipboard(run.server_seed, 'Server seed')
+                      }
+                      className="rounded-md p-1.5 text-sm ring-1 ring-inset"
+                      style={{
+                        backgroundColor: 'var(--color-surface)',
+                        color: 'var(--color-text-secondary)',
+                        borderColor: 'var(--color-border)',
+                      }}
+                    >
+                      Copy
+                    </button>
+                  </dd>
+                </div>
+                <div>
+                  <dt
+                    className="text-sm font-medium"
+                    style={{ color: 'var(--color-text-secondary)' }}
+                  >
+                    Client Seed
+                  </dt>
+                  <dd className="mt-1 flex items-center gap-x-2">
+                    <code className="flex-1 text-sm font-mono rounded px-2 py-1"
+                       style={{
+                        backgroundColor: 'var(--color-background)',
+                        color: 'var(--color-text-secondary)',
+                      }}
+                    >
+                      {run.client_seed}
+                    </code>
+                    <button
+                      onClick={() =>
+                        copyToClipboard(run.client_seed, 'Client seed')
+                      }
+                      className="rounded-md p-1.5 text-sm ring-1 ring-inset"
+                      style={{
+                        backgroundColor: 'var(--color-surface)',
+                        color: 'var(--color-text-secondary)',
+                        borderColor: 'var(--color-border)',
+                      }}
+                    >
+                      Copy
+                    </button>
+                  </dd>
+                </div>
               </div>
-            ))}
-        </div>
-      </div>
-
-      {/* Seeds */}
-      <div className="bg-white shadow rounded-lg p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Seeds</h3>
-        <div className="space-y-4">
-          <div>
-            <dt className="text-sm font-medium text-gray-500">Server Seed</dt>
-            <dd className="mt-1 flex items-center">
-              <code className="flex-1 text-sm font-mono text-gray-900 bg-gray-50 p-2 rounded break-all">
-                {run.server_seed}
-              </code>
-              <button
-                onClick={() => copyToClipboard(run.server_seed, "Server seed")}
-                className="ml-2 text-blue-600 hover:text-blue-800 text-sm"
-              >
-                Copy
-              </button>
-            </dd>
-          </div>
-          <div>
-            <dt className="text-sm font-medium text-gray-500">Client Seed</dt>
-            <dd className="mt-1 flex items-center">
-              <code className="flex-1 text-sm font-mono text-gray-900 bg-gray-50 p-2 rounded">
-                {run.client_seed}
-              </code>
-              <button
-                onClick={() => copyToClipboard(run.client_seed, "Client seed")}
-                className="ml-2 text-blue-600 hover:text-blue-800 text-sm"
-              >
-                Copy
-              </button>
-            </dd>
+            </div>
           </div>
         </div>
-      </div>
 
+        <div className="lg:col-span-1">
+          {/* Target Counts */}
+          <div
+            className="rounded-lg border"
+            style={{
+              backgroundColor: 'var(--color-surface)',
+              borderColor: 'var(--color-border)',
+            }}
+          >
+            <div className="p-6">
+              <h2 className="text-base font-semibold leading-7">
+                Target Counts
+              </h2>
+              <div className="mt-6 flow-root">
+                <div className="-my-4 divide-y" style={{borderColor: 'var(--color-border)'}}>
+                  {Object.entries(run.summary.counts_by_target)
+                    .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]))
+                    .map(([target, count]) => (
+                      <div
+                        key={target}
+                        className="flex items-center justify-between py-4"
+                      >
+                        <p
+                          className="text-sm font-medium"
+                          style={{ color: 'var(--color-text-secondary)' }}
+                        >
+                          ≥{target}x
+                        </p>
+                        <p className="text-sm font-semibold">
+                          {count.toLocaleString()}
+                        </p>
+                      </div>
+                    ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
       {/* Hits Table */}
-      <div className="bg-white shadow rounded-lg">
-        <div className="px-6 py-4 border-b border-gray-200">
+      <div
+        className="rounded-lg border"
+        style={{
+          backgroundColor: 'var(--color-surface)',
+          borderColor: 'var(--color-border)',
+        }}
+      >
+        <div className="p-6 border-b" style={{borderColor: 'var(--color-border)'}}>
           <div className="flex items-center justify-between">
-            <h3 className="text-lg font-semibold text-gray-900">
+            <h3 className="text-base font-semibold">
               Hits ({hitsTotal.toLocaleString()})
             </h3>
-            <div className="flex items-center space-x-4">
+            <div className="flex items-center gap-x-4">
               <div className="flex items-center">
                 <label
                   htmlFor="minMultiplier"
-                  className="text-sm font-medium text-gray-700 mr-2"
+                  className="text-sm font-medium mr-2"
+                  style={{ color: 'var(--color-text-secondary)' }}
                 >
                   Min Multiplier:
                 </label>
@@ -276,7 +433,7 @@ const RunDetail = () => {
                   id="minMultiplier"
                   step="0.1"
                   min="1"
-                  value={minMultiplier || ""}
+                  value={minMultiplier || ''}
                   onChange={(e) => {
                     const val = e.target.value
                       ? parseFloat(e.target.value)
@@ -285,7 +442,12 @@ const RunDetail = () => {
                     setHitsPage(0);
                   }}
                   placeholder="All"
-                  className="w-24 border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 text-sm"
+                  className="w-24 rounded-md py-1.5 px-2 text-sm ring-1 ring-inset"
+                  style={{
+                    backgroundColor: 'var(--color-background)',
+                    color: 'var(--color-text-primary)',
+                    borderColor: 'var(--color-border)',
+                  }}
                 />
               </div>
             </div>
@@ -294,29 +456,37 @@ const RunDetail = () => {
 
         {hitsLoading ? (
           <div className="flex justify-center items-center h-32">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-600"></div>
+            <div
+              className="animate-spin rounded-full h-6 w-6 border-b-2"
+              style={{ borderColor: 'var(--color-primary-500)' }}
+            ></div>
           </div>
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+              <table className="min-w-full">
+                <thead
+                  style={{
+                    backgroundColor: 'var(--color-background)',
+                    color: 'var(--color-text-secondary)',
+                  }}
+                >
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider">
                       Nonce
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider">
                       Max Multiplier
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="divide-y" style={{borderColor: 'var(--color-border)'}}>
                   {hits.map((hit) => (
-                    <tr key={hit.nonce} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
+                    <tr key={hit.nonce} className="hover:bg-gray-50/5">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono">
                         {hit.nonce.toLocaleString()}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm">
                         {hit.max_multiplier.toFixed(2)}x
                       </td>
                     </tr>
@@ -327,34 +497,40 @@ const RunDetail = () => {
 
             {/* Hits Pagination */}
             {hitsTotalPages > 1 && (
-              <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
+              <div
+                className="px-4 py-3 flex items-center justify-between border-t sm:px-6"
+                style={{ borderColor: 'var(--color-border)' }}
+              >
                 <div className="flex-1 flex justify-between sm:hidden">
                   <button
                     onClick={() => setHitsPage(hitsPage - 1)}
                     disabled={hitsPage === 0}
-                    className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                    className="relative inline-flex items-center px-4 py-2 border text-sm font-medium rounded-md disabled:opacity-50"
                   >
                     Previous
                   </button>
                   <button
                     onClick={() => setHitsPage(hitsPage + 1)}
                     disabled={hitsPage >= hitsTotalPages - 1}
-                    className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
+                    className="ml-3 relative inline-flex items-center px-4 py-2 border text-sm font-medium rounded-md disabled:opacity-50"
                   >
                     Next
                   </button>
                 </div>
                 <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
                   <div>
-                    <p className="text-sm text-gray-700">
-                      Showing{" "}
+                    <p
+                      className="text-sm"
+                      style={{ color: 'var(--color-text-secondary)' }}
+                    >
+                      Showing{' '}
                       <span className="font-medium">
                         {hitsPage * hitsLimit + 1}
-                      </span>{" "}
-                      to{" "}
+                      </span>{' '}
+                      to{' '}
                       <span className="font-medium">
                         {Math.min((hitsPage + 1) * hitsLimit, hitsTotal)}
-                      </span>{" "}
+                      </span>{' '}
                       of <span className="font-medium">{hitsTotal}</span> hits
                     </p>
                   </div>
@@ -363,9 +539,10 @@ const RunDetail = () => {
                       <button
                         onClick={() => setHitsPage(hitsPage - 1)}
                         disabled={hitsPage === 0}
-                        className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                        className="relative inline-flex items-center px-2 py-2 rounded-l-md border text-sm font-medium hover:bg-gray-50/5 disabled:opacity-50"
+                        style={{borderColor: 'var(--color-border)'}}
                       >
-                        Previous
+                        <ChevronLeftIcon className="h-5 w-5" />
                       </button>
                       {Array.from(
                         { length: Math.min(hitsTotalPages, 5) },
@@ -378,9 +555,14 @@ const RunDetail = () => {
                               onClick={() => setHitsPage(pageNum)}
                               className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
                                 pageNum === hitsPage
-                                  ? "z-10 bg-blue-50 border-blue-500 text-blue-600"
-                                  : "bg-white border-gray-300 text-gray-500 hover:bg-gray-50"
+                                  ? 'z-10'
+                                  : 'hover:bg-gray-50/5'
                               }`}
+                              style={{
+                                borderColor: 'var(--color-border)',
+                                backgroundColor: pageNum === hitsPage ? 'var(--color-primary-600)' : 'transparent',
+                                color: pageNum === hitsPage ? 'white' : 'var(--color-text-secondary)'
+                              }}
                             >
                               {pageNum + 1}
                             </button>
@@ -390,9 +572,10 @@ const RunDetail = () => {
                       <button
                         onClick={() => setHitsPage(hitsPage + 1)}
                         disabled={hitsPage >= hitsTotalPages - 1}
-                        className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
+                        className="relative inline-flex items-center px-2 py-2 rounded-r-md border text-sm font-medium hover:bg-gray-50/5 disabled:opacity-50"
+                        style={{borderColor: 'var(--color-border)'}}
                       >
-                        Next
+                        <ChevronRightIcon className="h-5 w-5" />
                       </button>
                     </nav>
                   </div>
@@ -402,10 +585,10 @@ const RunDetail = () => {
 
             {hits.length === 0 && !hitsLoading && (
               <div className="text-center py-12">
-                <div className="text-gray-500">
+                <div style={{ color: 'var(--color-text-secondary)' }}>
                   {minMultiplier
                     ? `No hits found with multiplier ≥ ${minMultiplier}x`
-                    : "No hits found."}
+                    : 'No hits found.'}
                 </div>
               </div>
             )}
