@@ -177,7 +177,7 @@ const RunDetail = () => {
             Run ID: {id}
           </p>
         </div>
-        <div className="flex-shrink-0 flex items-center gap-x-3">
+        <div className="shrink-0 flex items-center gap-x-3">
           <button
             onClick={handleDuplicate}
             className="flex items-center gap-x-2 rounded-md px-3 py-2 text-sm font-semibold ring-1 ring-inset"
