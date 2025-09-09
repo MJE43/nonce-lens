@@ -1,0 +1,27 @@
+# Product Overview
+
+## Pump Analyzer Web
+
+A local-first web application for analyzing Stake Pump game outcomes using provably-fair cryptographic replay. The tool deterministically replays betting sequences for given seed pairs and nonce ranges, storing results for later analysis and export.
+
+### Core Features
+
+- **Deterministic Replay**: Cryptographically accurate recreation of Stake Pump outcomes using HMAC-SHA256 with server/client seed pairs
+- **Multi-Difficulty Support**: Handles all Pump difficulties (easy/medium/hard/expert) with corresponding multiplier tables
+- **Batch Analysis**: Process up to 500k nonces per run with configurable target multipliers
+- **Data Persistence**: SQLite storage for runs, hits, and analysis results with CSV export capabilities
+- **Live Streams**: Real-time ingestion and monitoring of filtered betting data from external sources
+
+### Target Users
+
+- Cryptocurrency gambling analysts
+- Provably-fair gaming researchers  
+- Betting pattern investigators
+- Users requiring deterministic outcome verification
+
+### Key Principles
+
+- **Deterministic Correctness**: Identical inputs must produce identical outputs across all platforms
+- **Local Privacy**: All data stored locally in SQLite, no cloud dependencies
+- **Performance Focus**: 200k nonces analyzed in ≤10 seconds on target hardware
+- **Single-User Design**: Local-first architecture with no authentication requirements
