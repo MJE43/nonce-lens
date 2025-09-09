@@ -328,3 +328,6 @@ pump.db
 *.temp
 *.bak
 *.backup
+
+
+*.pyc
