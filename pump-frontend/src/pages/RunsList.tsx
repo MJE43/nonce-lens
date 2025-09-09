@@ -1,6 +1,32 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useRuns } from "../lib/hooks";
+import {
+  Search,
+  Plus,
+  Filter,
+  Clock,
+  Hash,
+  Target,
+  Zap,
+  Calendar,
+  TrendingUp,
+  ChevronLeft,
+  ChevronRight,
+  MoreHorizontal,
+  Eye,
+  Copy,
+} from "lucide-react";
+
+// ShadCN Components - importing one by one
+import { Button } from "@/components/ui/button";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 const RunsList = () => {
   const [search, setSearch] = useState("");
@@ -15,291 +41,116 @@ const RunsList = () => {
     offset: page * limit,
   });
 
-  const formatDuration = (ms: number) => {
-    const seconds = Math.round(ms / 1000);
-    if (seconds < 60) return `${seconds}s`;
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}m ${remainingSeconds}s`;
-  };
-
-  const formatRange = (start: number, end: number) => {
-    const count = end - start + 1;
-    if (count >= 1000000) return `${(count / 1000000).toFixed(1)}M`;
-    if (count >= 1000) return `${(count / 1000).toFixed(1)}K`;
-    return count.toString();
-  };
-
-  const getTargetCountsSummary = (counts: Record<string, number>) => {
-    const entries = Object.entries(counts).sort(
-      (a, b) => parseFloat(a[0]) - parseFloat(b[0])
-    );
-    if (entries.length === 0) return "None";
-    if (entries.length <= 3) {
-      return entries
-        .map(([target, count]) => `${target}x: ${count}`)
-        .join(", ");
-    }
-    return `${entries
-      .slice(0, 2)
-      .map(([target, count]) => `${target}x: ${count}`)
-      .join(", ")}, +${entries.length - 2} more`;
-  };
-
   if (isLoading) {
     return (
-      <div className="flex justify-center items-center h-64">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.1),transparent_70%)]" />
+        <div className="relative z-10 container mx-auto px-4 py-12 max-w-7xl">
+          <div className="flex flex-col items-center justify-center h-64 space-y-4">
+            <div className="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin"></div>
+            <p className="text-slate-400 text-lg">Loading analysis runs...</p>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="bg-red-50 border border-red-200 rounded-md p-4">
-        <div className="text-red-800">Error loading runs: {error.message}</div>
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.1),transparent_70%)]" />
+        <div className="relative z-10 container mx-auto px-4 py-12 max-w-7xl">
+          <Card className="bg-red-900/20 border-red-500/50 max-w-md mx-auto">
+            <CardHeader>
+              <CardTitle className="text-red-400">Error Loading Runs</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-red-300">{error.message}</p>
+            </CardContent>
+          </Card>
+        </div>
       </div>
     );
   }
 
   const runs = data?.runs || [];
   const total = data?.total || 0;
-  const totalPages = Math.ceil(total / limit);
 
   return (
-    <div className="space-y-6">
-      {/* Header */}
-      <div className="sm:flex sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900">Analysis Runs</h1>
-          <p className="mt-1 text-sm text-gray-600">{total} total runs</p>
-        </div>
-        <div className="mt-4 sm:mt-0">
-          <Link
-            to="/new"
-            className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-          >
-            New Run
-          </Link>
-        </div>
-      </div>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative overflow-hidden">
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.1),transparent_70%)]" />
+      <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-full blur-3xl" />
+      <div className="absolute bottom-0 left-0 w-96 h-96 bg-gradient-to-tr from-emerald-500/10 to-blue-500/10 rounded-full blur-3xl" />
 
-      {/* Filters */}
-      <div className="bg-white shadow rounded-lg p-6">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div>
-            <label
-              htmlFor="search"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Search Client Seed
-            </label>
-            <input
-              type="text"
-              id="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Enter client seed..."
-              className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-            />
-          </div>
-          <div>
-            <label
-              htmlFor="difficulty"
-              className="block text-sm font-medium text-gray-700"
-            >
-              Difficulty
-            </label>
-            <select
-              id="difficulty"
-              value={difficulty}
-              onChange={(e) => setDifficulty(e.target.value)}
-              className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
-            >
-              <option value="">All</option>
-              <option value="easy">Easy</option>
-              <option value="medium">Medium</option>
-              <option value="hard">Hard</option>
-              <option value="expert">Expert</option>
-            </select>
-          </div>
-          <div className="flex items-end">
-            <button
-              onClick={() => {
-                setSearch("");
-                setDifficulty("");
-                setPage(0);
-              }}
-              className="w-full px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-            >
-              Clear Filters
-            </button>
-          </div>
-        </div>
-      </div>
-
-      {/* Table */}
-      <div className="bg-white shadow rounded-lg overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Created
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Seed Hash
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Client Seed
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Difficulty
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Range
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Duration
-                </th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                  Target Counts
-                </th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {runs.map((run) => (
-                <tr
-                  key={run.id}
-                  className="hover:bg-gray-50 cursor-pointer"
-                  onClick={() => (window.location.href = `/runs/${run.id}`)}
-                >
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {new Date(run.created_at).toLocaleDateString()}{" "}
-                    {new Date(run.created_at).toLocaleTimeString()}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
-                    {run.server_seed_sha256.substring(0, 10)}...
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-900">
-                    {run.client_seed}
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    <span
-                      className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        run.difficulty === "easy"
-                          ? "bg-green-100 text-green-800"
-                          : run.difficulty === "medium"
-                          ? "bg-yellow-100 text-yellow-800"
-                          : run.difficulty === "hard"
-                          ? "bg-orange-100 text-orange-800"
-                          : "bg-red-100 text-red-800"
-                      }`}
-                    >
-                      {run.difficulty}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {run.nonce_start}-{run.nonce_end} (
-                    {formatRange(run.nonce_start, run.nonce_end)})
-                  </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {formatDuration(run.duration_ms)}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-gray-900">
-                    {getTargetCountsSummary(run.counts_by_target)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
-            <div className="flex-1 flex justify-between sm:hidden">
-              <button
-                onClick={() => setPage(page - 1)}
-                disabled={page === 0}
-                className="relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-              >
-                Previous
-              </button>
-              <button
-                onClick={() => setPage(page + 1)}
-                disabled={page >= totalPages - 1}
-                className="ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50"
-              >
-                Next
-              </button>
-            </div>
-            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm text-gray-700">
-                  Showing{" "}
-                  <span className="font-medium">{page * limit + 1}</span> to{" "}
-                  <span className="font-medium">
-                    {Math.min((page + 1) * limit, total)}
-                  </span>{" "}
-                  of <span className="font-medium">{total}</span> results
-                </p>
+      <div className="relative z-10 container mx-auto px-4 py-12 max-w-7xl space-y-8">
+        {/* Header */}
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
+          <div className="space-y-2">
+            <h1 className="text-4xl font-bold text-white tracking-tight">
+              Analysis Runs
+            </h1>
+            <div className="flex items-center gap-4 text-slate-400">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4" />
+                <span>{total} total runs</span>
               </div>
-              <div>
-                <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
-                  <button
-                    onClick={() => setPage(page - 1)}
-                    disabled={page === 0}
-                    className="relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    Previous
-                  </button>
-                  {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
-                    const pageNum = page < 3 ? i : page - 2 + i;
-                    if (pageNum >= totalPages) return null;
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => setPage(pageNum)}
-                        className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
-                          pageNum === page
-                            ? "z-10 bg-blue-50 border-blue-500 text-blue-600"
-                            : "bg-white border-gray-300 text-gray-500 hover:bg-gray-50"
-                        }`}
-                      >
-                        {pageNum + 1}
-                      </button>
-                    );
-                  })}
-                  <button
-                    onClick={() => setPage(page + 1)}
-                    disabled={page >= totalPages - 1}
-                    className="relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:opacity-50"
-                  >
-                    Next
-                  </button>
-                </nav>
+              <div className="flex items-center gap-2">
+                <Calendar className="w-4 h-4" />
+                <span>Pump Analysis Engine</span>
               </div>
             </div>
           </div>
-        )}
-      </div>
-
-      {runs.length === 0 && !isLoading && (
-        <div className="text-center py-12">
-          <div className="text-gray-500">
-            {search || difficulty
-              ? "No runs match your filters."
-              : "No runs found."}
-          </div>
-          <Link
-            to="/new"
-            className="mt-4 inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-blue-600 bg-blue-100 hover:bg-blue-200"
+          <Button
+            asChild
+            className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white shadow-lg"
           >
-            Create your first run
-          </Link>
+            <Link to="/new">
+              <Plus className="w-4 h-4 mr-2" />
+              New Analysis Run
+            </Link>
+          </Button>
         </div>
-      )}
+
+        {/* Simple results for now */}
+        <Card className="bg-slate-800/50 backdrop-blur-xl border-slate-700/50 shadow-2xl">
+          <CardHeader>
+            <CardTitle className="text-white">Runs ({runs.length})</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {runs.length === 0 ? (
+              <div className="text-center py-8">
+                <p className="text-slate-400 mb-4">No runs found</p>
+                <Button asChild>
+                  <Link to="/new">Create Your First Run</Link>
+                </Button>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {runs.map((run) => (
+                  <div
+                    key={run.id}
+                    className="p-4 bg-slate-900/50 rounded-lg border border-slate-600/50"
+                  >
+                    <div className="flex justify-between items-center">
+                      <div>
+                        <p className="text-white font-mono text-sm">
+                          {run.client_seed}
+                        </p>
+                        <p className="text-slate-400 text-xs">
+                          {run.difficulty}
+                        </p>
+                      </div>
+                      <Button variant="outline" size="sm" asChild>
+                        <Link to={`/runs/${run.id}`}>View</Link>
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </div>
     </div>
   );
 };

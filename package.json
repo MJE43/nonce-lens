@@ -1,5 +1,8 @@
 {
   "dependencies": {
     "@heroicons/react": "^2.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.3.1"
   }
 }

@@ -9,7 +9,7 @@ The current implementation uses Tailwind CSS v4 with custom CSS variables for th
 ## Architecture
 
 ### Design System Approach
-- **Color System**: Implement a cohesive color palette with proper contrast ratios for both light and dark modes
+- **Color System**: Implement a cohesive color palette. Dark mode only
 - **Typography Scale**: Use consistent font sizes and weights with clear hierarchy
 - **Spacing System**: Apply consistent spacing using Tailwind's spacing scale
 - **Component States**: Define clear visual states for form elements (default, focus, error, success)

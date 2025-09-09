@@ -2,6 +2,43 @@ import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import { useCreateRun } from "../lib/hooks";
+import {
+  Calculator,
+  Zap,
+  Target,
+  Clock,
+  Sparkles,
+  Check,
+  ChevronsUpDown,
+  X,
+} from "lucide-react";
+
+// ShadCN Components
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
+import { Badge } from "@/components/ui/badge";
+import { cn } from "@/lib/utils";
 
 const NewRun = () => {
   const navigate = useNavigate();
@@ -41,11 +78,12 @@ const NewRun = () => {
     client_seed: "",
     start: 1,
     end: 1000,
-    difficulty: "medium" as const,
-    targets: suggestionsFor("medium").join(","),
+    difficulty: "medium" as "easy" | "medium" | "hard" | "expert",
+    targets: [], // Start with no targets selected
   });
 
   const [targetsTouched, setTargetsTouched] = useState(false);
+  const [targetsPopoverOpen, setTargetsPopoverOpen] = useState(false);
 
   // Pre-fill form from URL parameters (for duplicate functionality)
   useEffect(() => {
@@ -62,18 +100,24 @@ const NewRun = () => {
         client_seed: client_seed || "",
         start: start ? parseInt(start) : 1,
         end: end ? parseInt(end) : 1000,
-        difficulty: (difficulty as any) || "medium",
-        targets: targets || suggestionsFor(difficulty || "medium").join(","),
+        difficulty:
+          (difficulty as "easy" | "medium" | "hard" | "expert") || "medium",
+        targets: targets
+          ? targets
+              .split(",")
+              .map((t) => parseFloat(t.trim()))
+              .filter((t) => !isNaN(t))
+          : [],
       });
     }
   }, [searchParams]);
 
-  // Auto-apply suggested targets on difficulty change if user hasn't edited the field
+  // Clear targets when difficulty changes if user hasn't manually selected any
   useEffect(() => {
     if (!targetsTouched) {
       setFormData((prev) => ({
         ...prev,
-        targets: suggestionsFor(prev.difficulty).join(","),
+        targets: [],
       }));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -104,17 +148,10 @@ const NewRun = () => {
       newErrors.end = "Range cannot exceed 1M nonces";
     }
 
-    // Parse and validate targets
-    const targetNumbers = formData.targets
-      .split(",")
-      .map((t) => t.trim())
-      .filter((t) => t)
-      .map((t) => parseFloat(t))
-      .filter((t) => !isNaN(t));
-
-    if (targetNumbers.length === 0) {
+    // Validate targets array
+    if (formData.targets.length === 0) {
       newErrors.targets = "At least one target is required";
-    } else if (targetNumbers.some((t) => t <= 1)) {
+    } else if (formData.targets.some((t) => t <= 1)) {
       newErrors.targets = "All targets must be greater than 1";
     }
 
@@ -127,16 +164,8 @@ const NewRun = () => {
 
     if (!validateForm()) return;
 
-    // Parse targets
-    const targets = formData.targets
-      .split(",")
-      .map((t) => t.trim())
-      .filter((t) => t)
-      .map((t) => parseFloat(t))
-      .filter((t) => !isNaN(t));
-
     // Remove duplicates and sort
-    const uniqueTargets = [...new Set(targets)].sort((a, b) => a - b);
+    const uniqueTargets = [...new Set(formData.targets)].sort((a, b) => a - b);
 
     try {
       const result = await createRunMutation.mutateAsync({
@@ -157,7 +186,10 @@ const NewRun = () => {
     }
   };
 
-  const handleInputChange = (field: string, value: string | number) => {
+  const handleInputChange = (
+    field: string,
+    value: string | number | number[]
+  ) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     // Clear error when user starts typing
     if (errors[field]) {
@@ -178,179 +210,138 @@ const NewRun = () => {
     rangeSize > 100000 ? `~${Math.round(rangeSize / 20000)}s` : "< 5s";
 
   return (
-    <div
-      className="min-h-screen"
-      style={{ backgroundColor: "var(--color-background)" }}
-    >
-      <div className="container mx-auto px-4 py-8 max-w-4xl">
-        <div
-          className="rounded-xl border shadow-lg overflow-hidden"
-          style={{
-            backgroundColor: "var(--color-surface)",
-            borderColor: "var(--color-border)",
-            boxShadow: "var(--shadow-lg)",
-          }}
-        >
-          <div
-            className="px-8 py-6 border-b"
-            style={{
-              backgroundColor: "var(--color-surface-secondary)",
-              borderColor: "var(--color-border)",
-            }}
-          >
-            <h1
-              className="text-3xl font-semibold mb-2"
-              style={{ color: "var(--color-text-primary)" }}
-            >
-              Create New Analysis Run
-            </h1>
-            <p
-              className="text-base leading-relaxed"
-              style={{ color: "var(--color-text-secondary)" }}
-            >
-              Analyze Pump outcomes for a range of nonces with specified
-              targets.
-            </p>
+    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative overflow-hidden">
+      {/* Background decorative elements */}
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.1),transparent_70%)]" />
+      <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-full blur-3xl" />
+      <div className="absolute bottom-0 left-0 w-96 h-96 bg-gradient-to-tr from-emerald-500/10 to-blue-500/10 rounded-full blur-3xl" />
+
+      <div className="relative z-10 container mx-auto px-4 py-12 max-w-5xl">
+        {/* Header Section */}
+        <div className="text-center mb-12">
+          <div className="inline-flex items-center gap-2 bg-blue-500/10 text-blue-400 px-4 py-2 rounded-full text-sm font-medium mb-6 border border-blue-500/20">
+            <Sparkles className="w-4 h-4" />
+            Pump Analysis Engine
+          </div>
+          <h1 className="text-5xl font-bold text-white mb-4 tracking-tight">
+            Create New
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-blue-400 to-emerald-400">
+              {" "}
+              Analysis Run
+            </span>
+          </h1>
+          <p className="text-xl text-slate-300 max-w-2xl mx-auto leading-relaxed">
+            Analyze Pump outcomes for a range of nonces with specified targets
+            using our provably-fair deterministic engine.
+          </p>
+        </div>
+
+        {/* Main Form Card */}
+        <div className="bg-slate-800/50 backdrop-blur-xl border border-slate-700/50 rounded-2xl shadow-2xl overflow-hidden">
+          <div className="bg-gradient-to-r from-slate-800/80 to-slate-700/80 px-8 py-6 border-b border-slate-700/50">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-blue-500/20 rounded-lg flex items-center justify-center">
+                <Calculator className="w-5 h-5 text-blue-400" />
+              </div>
+              <div>
+                <h2 className="text-xl font-semibold text-white">
+                  Analysis Configuration
+                </h2>
+                <p className="text-slate-400 text-sm">
+                  Set up your pump analysis parameters
+                </p>
+              </div>
+            </div>
           </div>
 
           <form onSubmit={handleSubmit} className="p-8 space-y-8">
             {/* Server Seed */}
-            <div className="form-group">
-              <label
+            <div className="space-y-3">
+              <Label
                 htmlFor="server_seed"
-                className="block font-medium mb-2"
-                style={{
-                  color: "var(--color-text-primary)",
-                  fontSize: "var(--font-size-sm)",
-                }}
+                className="flex items-center gap-2 text-slate-300"
               >
+                <div className="w-5 h-5 bg-emerald-500/20 rounded flex items-center justify-center">
+                  <div className="w-2 h-2 bg-emerald-400 rounded-full" />
+                </div>
                 Server Seed
-              </label>
-              <textarea
-                id="server_seed"
-                rows={3}
-                value={formData.server_seed}
-                onChange={(e) =>
-                  handleInputChange("server_seed", e.target.value)
-                }
-                placeholder="Enter the hex server seed..."
-                className="block w-full font-mono resize-none"
-                style={{
-                  backgroundColor: "var(--color-surface)",
-                  borderColor: errors.server_seed
-                    ? "var(--color-border-error)"
-                    : "var(--color-border)",
-                  borderRadius: "var(--border-radius-lg)",
-                  padding: "var(--spacing-md)",
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--color-text-primary)",
-                  border: "1px solid",
-                  transition: "all var(--transition-fast)",
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = errors.server_seed
-                    ? "var(--color-border-error)"
-                    : "var(--color-border-focus)";
-                  e.target.style.boxShadow = errors.server_seed
-                    ? "0 0 0 3px rgb(239 68 68 / 0.1)"
-                    : "var(--shadow-focus)";
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = errors.server_seed
-                    ? "var(--color-border-error)"
-                    : "var(--color-border)";
-                  e.target.style.boxShadow = "none";
-                }}
-              />
+              </Label>
+              <div className="relative">
+                <textarea
+                  id="server_seed"
+                  rows={3}
+                  value={formData.server_seed}
+                  onChange={(e) =>
+                    handleInputChange("server_seed", e.target.value)
+                  }
+                  placeholder="Enter the hex server seed (e.g., 564e967b90f03d0153fdcb2d2d1cc5a5057e0df78163611fe3801d6498e681ca)"
+                  className={cn(
+                    "w-full min-h-[80px] bg-slate-900/50 border rounded-xl px-4 py-3 text-slate-100 font-mono text-sm resize-none transition-all duration-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50",
+                    errors.server_seed
+                      ? "border-red-500/50 focus:ring-red-500/50 focus:border-red-500/50"
+                      : "border-slate-600/50 hover:border-slate-500/50"
+                  )}
+                />
+              </div>
               {errors.server_seed && (
-                <p
-                  className="error-message mt-2"
-                  style={{
-                    color: "var(--color-error-600)",
-                    fontSize: "var(--font-size-sm)",
-                  }}
-                >
+                <div className="flex items-center gap-2 text-red-400 text-sm">
+                  <div className="w-4 h-4 rounded-full bg-red-500/20 flex items-center justify-center">
+                    <div className="w-2 h-2 bg-red-400 rounded-full" />
+                  </div>
                   {errors.server_seed}
-                </p>
+                </div>
               )}
             </div>
 
             {/* Client Seed */}
-            <div className="form-group">
-              <label
+            <div className="space-y-3">
+              <Label
                 htmlFor="client_seed"
-                className="block font-medium mb-2"
-                style={{
-                  color: "var(--color-text-primary)",
-                  fontSize: "var(--font-size-sm)",
-                }}
+                className="flex items-center gap-2 text-slate-300"
               >
+                <div className="w-5 h-5 bg-purple-500/20 rounded flex items-center justify-center">
+                  <div className="w-2 h-2 bg-purple-400 rounded-full" />
+                </div>
                 Client Seed
-              </label>
-              <input
-                type="text"
+              </Label>
+              <Input
                 id="client_seed"
                 value={formData.client_seed}
                 onChange={(e) =>
                   handleInputChange("client_seed", e.target.value)
                 }
-                placeholder="Enter the client seed..."
-                className="block w-full font-mono"
-                style={{
-                  backgroundColor: "var(--color-surface)",
-                  borderColor: errors.client_seed
-                    ? "var(--color-border-error)"
-                    : "var(--color-border)",
-                  borderRadius: "var(--border-radius-lg)",
-                  padding: "var(--spacing-md)",
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--color-text-primary)",
-                  border: "1px solid",
-                  transition: "all var(--transition-fast)",
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = errors.client_seed
-                    ? "var(--color-border-error)"
-                    : "var(--color-border-focus)";
-                  e.target.style.boxShadow = errors.client_seed
-                    ? "0 0 0 3px rgb(239 68 68 / 0.1)"
-                    : "var(--shadow-focus)";
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = errors.client_seed
-                    ? "var(--color-border-error)"
-                    : "var(--color-border)";
-                  e.target.style.boxShadow = "none";
-                }}
+                placeholder="Enter the client seed (e.g., zXv1upuFns)"
+                className={cn(
+                  "bg-slate-900/50 border-slate-600/50 text-slate-100 font-mono placeholder:text-slate-500 focus:border-blue-500/50 focus:ring-blue-500/50",
+                  errors.client_seed &&
+                    "border-red-500/50 focus:border-red-500/50 focus:ring-red-500/50"
+                )}
               />
               {errors.client_seed && (
-                <p
-                  className="error-message mt-2"
-                  style={{
-                    color: "var(--color-error-600)",
-                    fontSize: "var(--font-size-sm)",
-                  }}
-                >
+                <div className="flex items-center gap-2 text-red-400 text-sm">
+                  <div className="w-4 h-4 rounded-full bg-red-500/20 flex items-center justify-center">
+                    <div className="w-2 h-2 bg-red-400 rounded-full" />
+                  </div>
                   {errors.client_seed}
-                </p>
+                </div>
               )}
             </div>
 
-            {/* Range */}
-            <div className="form-group">
+            {/* Range Section */}
+            <div className="space-y-4">
+              <div className="flex items-center gap-2 text-sm font-medium text-slate-300">
+                <div className="w-5 h-5 bg-blue-500/20 rounded flex items-center justify-center">
+                  <div className="w-2 h-2 bg-blue-400 rounded-full" />
+                </div>
+                Nonce Range
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div>
-                  <label
-                    htmlFor="start"
-                    className="block font-medium mb-2"
-                    style={{
-                      color: "var(--color-text-primary)",
-                      fontSize: "var(--font-size-sm)",
-                    }}
-                  >
+                <div className="space-y-3">
+                  <Label htmlFor="start" className="text-slate-400">
                     Start Nonce
-                  </label>
-                  <input
+                  </Label>
+                  <Input
                     type="number"
                     id="start"
                     min="1"
@@ -358,59 +349,27 @@ const NewRun = () => {
                     onChange={(e) =>
                       handleInputChange("start", parseInt(e.target.value) || 1)
                     }
-                    className="block w-full"
-                    style={{
-                      backgroundColor: "var(--color-surface)",
-                      borderColor: errors.start
-                        ? "var(--color-border-error)"
-                        : "var(--color-border)",
-                      borderRadius: "var(--border-radius-lg)",
-                      padding: "var(--spacing-md)",
-                      fontSize: "var(--font-size-sm)",
-                      color: "var(--color-text-primary)",
-                      border: "1px solid",
-                      transition: "all var(--transition-fast)",
-                    }}
-                    onFocus={(e) => {
-                      e.target.style.borderColor = errors.start
-                        ? "var(--color-border-error)"
-                        : "var(--color-border-focus)";
-                      e.target.style.boxShadow = errors.start
-                        ? "0 0 0 3px rgb(239 68 68 / 0.1)"
-                        : "var(--shadow-focus)";
-                    }}
-                    onBlur={(e) => {
-                      e.target.style.borderColor = errors.start
-                        ? "var(--color-border-error)"
-                        : "var(--color-border)";
-                      e.target.style.boxShadow = "none";
-                    }}
+                    className={cn(
+                      "bg-slate-900/50 border-slate-600/50 text-slate-100 focus:border-blue-500/50 focus:ring-blue-500/50",
+                      errors.start &&
+                        "border-red-500/50 focus:border-red-500/50 focus:ring-red-500/50"
+                    )}
                   />
                   {errors.start && (
-                    <p
-                      className="error-message mt-2"
-                      style={{
-                        color: "var(--color-error-600)",
-                        fontSize: "var(--font-size-sm)",
-                      }}
-                    >
+                    <div className="flex items-center gap-2 text-red-400 text-sm">
+                      <div className="w-4 h-4 rounded-full bg-red-500/20 flex items-center justify-center">
+                        <div className="w-2 h-2 bg-red-400 rounded-full" />
+                      </div>
                       {errors.start}
-                    </p>
+                    </div>
                   )}
                 </div>
 
-                <div>
-                  <label
-                    htmlFor="end"
-                    className="block font-medium mb-2"
-                    style={{
-                      color: "var(--color-text-primary)",
-                      fontSize: "var(--font-size-sm)",
-                    }}
-                  >
+                <div className="space-y-3">
+                  <Label htmlFor="end" className="text-slate-400">
                     End Nonce
-                  </label>
-                  <input
+                  </Label>
+                  <Input
                     type="number"
                     id="end"
                     min={formData.start}
@@ -421,287 +380,305 @@ const NewRun = () => {
                         parseInt(e.target.value) || formData.start
                       )
                     }
-                    className="block w-full"
-                    style={{
-                      backgroundColor: "var(--color-surface)",
-                      borderColor: errors.end
-                        ? "var(--color-border-error)"
-                        : "var(--color-border)",
-                      borderRadius: "var(--border-radius-lg)",
-                      padding: "var(--spacing-md)",
-                      fontSize: "var(--font-size-sm)",
-                      color: "var(--color-text-primary)",
-                      border: "1px solid",
-                      transition: "all var(--transition-fast)",
-                    }}
-                    onFocus={(e) => {
-                      e.target.style.borderColor = errors.end
-                        ? "var(--color-border-error)"
-                        : "var(--color-border-focus)";
-                      e.target.style.boxShadow = errors.end
-                        ? "0 0 0 3px rgb(239 68 68 / 0.1)"
-                        : "var(--shadow-focus)";
-                    }}
-                    onBlur={(e) => {
-                      e.target.style.borderColor = errors.end
-                        ? "var(--color-border-error)"
-                        : "var(--color-border)";
-                      e.target.style.boxShadow = "none";
-                    }}
+                    className={cn(
+                      "bg-slate-900/50 border-slate-600/50 text-slate-100 focus:border-blue-500/50 focus:ring-blue-500/50",
+                      errors.end &&
+                        "border-red-500/50 focus:border-red-500/50 focus:ring-red-500/50"
+                    )}
                   />
                   {errors.end && (
-                    <p
-                      className="error-message mt-2"
-                      style={{
-                        color: "var(--color-error-600)",
-                        fontSize: "var(--font-size-sm)",
-                      }}
-                    >
+                    <div className="flex items-center gap-2 text-red-400 text-sm">
+                      <div className="w-4 h-4 rounded-full bg-red-500/20 flex items-center justify-center">
+                        <div className="w-2 h-2 bg-red-400 rounded-full" />
+                      </div>
                       {errors.end}
-                    </p>
+                    </div>
                   )}
                 </div>
               </div>
             </div>
 
             {/* Range Info */}
-            <div
-              className="rounded-lg p-4 border"
-              style={{
-                backgroundColor: "var(--color-primary-50)",
-                borderColor: "var(--color-primary-200)",
-                boxShadow: "var(--shadow-sm)",
-              }}
-            >
-              <div
-                className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6"
-                style={{
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--color-primary-700)",
-                }}
-              >
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold">Range:</span>
-                  <span className="font-mono">
-                    {rangeSize.toLocaleString()} nonces
-                  </span>
+            <div className="bg-gradient-to-r from-blue-500/10 to-emerald-500/10 border border-blue-500/20 rounded-xl p-4">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-4 sm:gap-8">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-blue-500/20 rounded-lg flex items-center justify-center">
+                    <Calculator className="w-4 h-4 text-blue-400" />
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-400 uppercase tracking-wide">
+                      Range
+                    </div>
+                    <div className="text-sm font-mono text-blue-300 font-medium">
+                      {rangeSize.toLocaleString()} nonces
+                    </div>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold">Estimated time:</span>
-                  <span className="font-mono">{estimatedTime}</span>
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 bg-emerald-500/20 rounded-lg flex items-center justify-center">
+                    <Clock className="w-4 h-4 text-emerald-400" />
+                  </div>
+                  <div>
+                    <div className="text-xs text-slate-400 uppercase tracking-wide">
+                      Estimated Time
+                    </div>
+                    <div className="text-sm font-mono text-emerald-300 font-medium">
+                      {estimatedTime}
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
 
             {/* Difficulty */}
-            <div className="form-group">
-              <label
-                htmlFor="difficulty"
-                className="block font-medium mb-2"
-                style={{
-                  color: "var(--color-text-primary)",
-                  fontSize: "var(--font-size-sm)",
-                }}
-              >
-                Difficulty
-              </label>
-              <select
-                id="difficulty"
+            <div className="space-y-3">
+              <Label className="flex items-center gap-2 text-slate-300">
+                <div className="w-5 h-5 bg-amber-500/20 rounded flex items-center justify-center">
+                  <Zap className="w-3 h-3 text-amber-400" />
+                </div>
+                Difficulty Level
+              </Label>
+              <Select
                 value={formData.difficulty}
-                onChange={(e) =>
-                  handleInputChange("difficulty", e.target.value)
+                onValueChange={(value) =>
+                  handleInputChange("difficulty", value)
                 }
-                className="block w-full"
-                style={{
-                  backgroundColor: "var(--color-surface)",
-                  borderColor: "var(--color-border)",
-                  borderRadius: "var(--border-radius-lg)",
-                  padding: "var(--spacing-md)",
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--color-text-primary)",
-                  border: "1px solid",
-                  transition: "all var(--transition-fast)",
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = "var(--color-border-focus)";
-                  e.target.style.boxShadow = "var(--shadow-focus)";
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = "var(--color-border)";
-                  e.target.style.boxShadow = "none";
-                }}
               >
-                <option value="easy">Easy</option>
-                <option value="medium">Medium</option>
-                <option value="hard">Hard</option>
-                <option value="expert">Expert</option>
-              </select>
+                <SelectTrigger className="bg-slate-900/50 border-slate-600/50 text-slate-100 focus:border-blue-500/50 focus:ring-blue-500/50">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700">
+                  <SelectItem
+                    value="easy"
+                    className="text-slate-100 focus:bg-slate-700"
+                  >
+                    Easy
+                  </SelectItem>
+                  <SelectItem
+                    value="medium"
+                    className="text-slate-100 focus:bg-slate-700"
+                  >
+                    Medium
+                  </SelectItem>
+                  <SelectItem
+                    value="hard"
+                    className="text-slate-100 focus:bg-slate-700"
+                  >
+                    Hard
+                  </SelectItem>
+                  <SelectItem
+                    value="expert"
+                    className="text-slate-100 focus:bg-slate-700"
+                  >
+                    Expert
+                  </SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
             {/* Targets */}
-            <div className="form-group">
-              <label
-                htmlFor="targets"
-                className="block font-medium mb-2"
-                style={{
-                  color: "var(--color-text-primary)",
-                  fontSize: "var(--font-size-sm)",
-                }}
-              >
+            <div className="space-y-4">
+              <Label className="flex items-center gap-2 text-slate-300">
+                <div className="w-5 h-5 bg-pink-500/20 rounded flex items-center justify-center">
+                  <Target className="w-3 h-3 text-pink-400" />
+                </div>
                 Target Multipliers
-              </label>
-              <input
-                type="text"
-                id="targets"
-                value={formData.targets}
-                onChange={(e) => handleInputChange("targets", e.target.value)}
-                placeholder="2,5,10,25,50,100"
-                className="block w-full"
-                style={{
-                  backgroundColor: "var(--color-surface)",
-                  borderColor: errors.targets
-                    ? "var(--color-border-error)"
-                    : "var(--color-border)",
-                  borderRadius: "var(--border-radius-lg)",
-                  padding: "var(--spacing-md)",
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--color-text-primary)",
-                  border: "1px solid",
-                  transition: "all var(--transition-fast)",
-                }}
-                onFocus={(e) => {
-                  e.target.style.borderColor = errors.targets
-                    ? "var(--color-border-error)"
-                    : "var(--color-border-focus)";
-                  e.target.style.boxShadow = errors.targets
-                    ? "0 0 0 3px rgb(239 68 68 / 0.1)"
-                    : "var(--shadow-focus)";
-                }}
-                onBlur={(e) => {
-                  e.target.style.borderColor = errors.targets
-                    ? "var(--color-border-error)"
-                    : "var(--color-border)";
-                  e.target.style.boxShadow = "none";
-                }}
-              />
-              <p
-                className="mt-2"
-                style={{
-                  fontSize: "var(--font-size-sm)",
-                  color: "var(--color-text-tertiary)",
-                }}
+              </Label>
+
+              {/* Multi-select dropdown */}
+              <Popover
+                open={targetsPopoverOpen}
+                onOpenChange={setTargetsPopoverOpen}
               >
-                Comma-separated list of multiplier thresholds (e.g.,
-                2,5,10,25,50,100)
-              </p>
-              {/* Suggestions helper */}
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <button
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="outline"
+                    role="combobox"
+                    aria-expanded={targetsPopoverOpen}
+                    className={cn(
+                      "w-full justify-between bg-slate-900/50 border-slate-600/50 text-slate-100 hover:bg-slate-800/50 focus:border-blue-500/50 focus:ring-blue-500/50 min-h-[60px] h-auto",
+                      errors.targets &&
+                        "border-red-500/50 focus:border-red-500/50 focus:ring-red-500/50"
+                    )}
+                  >
+                    <div className="flex flex-wrap gap-1 max-w-full">
+                      {formData.targets.length === 0 ? (
+                        <span className="text-slate-500">
+                          Select target multipliers...
+                        </span>
+                      ) : (
+                        formData.targets.slice(0, 6).map((target) => (
+                          <Badge
+                            key={target}
+                            variant="secondary"
+                            className="bg-blue-500/20 text-blue-300 border-blue-500/30 hover:bg-blue-500/30"
+                          >
+                            {target}x
+                            <button
+                              type="button"
+                              className="ml-1 hover:bg-blue-500/40 rounded-full p-0.5"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleInputChange(
+                                  "targets",
+                                  formData.targets.filter((t) => t !== target)
+                                );
+                              }}
+                            >
+                              <X className="w-3 h-3" />
+                            </button>
+                          </Badge>
+                        ))
+                      )}
+                      {formData.targets.length > 6 && (
+                        <Badge
+                          variant="secondary"
+                          className="bg-slate-700 text-slate-300"
+                        >
+                          +{formData.targets.length - 6} more
+                        </Badge>
+                      )}
+                    </div>
+                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  className="w-[400px] p-0 bg-slate-800 border-slate-700"
+                  side="bottom"
+                  align="start"
+                >
+                  <Command className="bg-slate-800">
+                    <CommandInput
+                      placeholder="Search multipliers..."
+                      className="bg-slate-800 text-slate-100 placeholder:text-slate-500"
+                    />
+                    <CommandEmpty className="text-slate-400 py-6 text-center">
+                      No multipliers found.
+                    </CommandEmpty>
+                    <CommandList className="max-h-64">
+                      <CommandGroup>
+                        {suggestionsFor(formData.difficulty).map(
+                          (multiplier) => (
+                            <CommandItem
+                              key={multiplier}
+                              value={multiplier.toString()}
+                              onSelect={() => {
+                                const isSelected =
+                                  formData.targets.includes(multiplier);
+                                if (isSelected) {
+                                  handleInputChange(
+                                    "targets",
+                                    formData.targets.filter(
+                                      (t) => t !== multiplier
+                                    )
+                                  );
+                                } else {
+                                  handleInputChange("targets", [
+                                    ...formData.targets,
+                                    multiplier,
+                                  ]);
+                                }
+                                setTargetsTouched(true);
+                              }}
+                              className="text-slate-100 hover:bg-slate-700 data-[selected]:bg-slate-700"
+                            >
+                              <Check
+                                className={cn(
+                                  "mr-2 h-4 w-4",
+                                  formData.targets.includes(multiplier)
+                                    ? "opacity-100"
+                                    : "opacity-0"
+                                )}
+                              />
+                              <span className="font-mono">{multiplier}x</span>
+                              <span className="ml-auto text-xs text-slate-400">
+                                multiplier
+                              </span>
+                            </CommandItem>
+                          )
+                        )}
+                      </CommandGroup>
+                    </CommandList>
+                  </Command>
+                </PopoverContent>
+              </Popover>
+
+              <div className="flex items-center justify-between">
+                <p className="text-sm text-slate-400">
+                  Select multiplier thresholds for {formData.difficulty}{" "}
+                  difficulty
+                </p>
+                <Button
                   type="button"
+                  variant="ghost"
+                  size="sm"
                   onClick={() => {
-                    const suggestion = suggestionsFor(formData.difficulty).join(
-                      ","
+                    handleInputChange(
+                      "targets",
+                      suggestionsFor(formData.difficulty)
                     );
-                    setFormData((prev) => ({ ...prev, targets: suggestion }));
                     setTargetsTouched(true);
                   }}
-                  className="px-3 py-1 rounded-md text-sm"
-                  style={{
-                    backgroundColor: "var(--color-primary-50)",
-                    color: "var(--color-primary-700)",
-                    border: "1px solid var(--color-primary-200)",
-                  }}
+                  className="text-blue-400 hover:text-blue-300 hover:bg-blue-500/10"
                 >
-                  Use {formData.difficulty} suggestions
-                </button>
-                <span
-                  className="text-xs"
-                  style={{ color: "var(--color-text-tertiary)" }}
-                >
-                  {suggestionsFor(formData.difficulty).slice(0, 8).join(", ")}
-                  {suggestionsFor(formData.difficulty).length > 8 ? ", …" : ""}
-                </span>
+                  <Sparkles className="w-3 h-3 mr-1" />
+                  Use all {formData.difficulty} suggestions
+                </Button>
               </div>
+
+              {formData.targets.length > 0 && (
+                <div className="bg-slate-900/30 border border-slate-700/50 rounded-xl p-4">
+                  <div className="text-xs text-slate-400 mb-2">
+                    Selected targets ({formData.targets.length}):
+                  </div>
+                  <div className="text-xs text-slate-300 font-mono leading-relaxed">
+                    {formData.targets.sort((a, b) => a - b).join(", ")}
+                  </div>
+                </div>
+              )}
+
               {errors.targets && (
-                <p
-                  className="error-message mt-2"
-                  style={{
-                    color: "var(--color-error-600)",
-                    fontSize: "var(--font-size-sm)",
-                  }}
-                >
+                <div className="flex items-center gap-2 text-red-400 text-sm">
+                  <div className="w-4 h-4 rounded-full bg-red-500/20 flex items-center justify-center">
+                    <div className="w-2 h-2 bg-red-400 rounded-full" />
+                  </div>
                   {errors.targets}
-                </p>
+                </div>
               )}
             </div>
 
             {/* Actions */}
-            <div
-              className="flex flex-col sm:flex-row justify-end gap-3 pt-6 border-t"
-              style={{ borderColor: "var(--color-border)" }}
-            >
-              <button
+            <div className="flex flex-col sm:flex-row justify-end gap-4 pt-8 border-t border-slate-700/50">
+              <Button
                 type="button"
+                variant="outline"
                 onClick={() => navigate("/")}
-                className="px-6 py-3 border rounded-lg font-medium transition-all duration-200 min-h-[44px]"
-                style={{
-                  backgroundColor: "var(--color-surface)",
-                  borderColor: "var(--color-border)",
-                  color: "var(--color-text-primary)",
-                  fontSize: "var(--font-size-sm)",
-                }}
-                onMouseEnter={(e) => {
-                  e.target.style.backgroundColor =
-                    "var(--color-surface-secondary)";
-                  e.target.style.borderColor = "var(--color-border-secondary)";
-                }}
-                onMouseLeave={(e) => {
-                  e.target.style.backgroundColor = "var(--color-surface)";
-                  e.target.style.borderColor = "var(--color-border)";
-                }}
-                onFocus={(e) => {
-                  e.target.style.outline = "none";
-                  e.target.style.boxShadow = "var(--shadow-focus)";
-                  e.target.style.borderColor = "var(--color-border-focus)";
-                }}
-                onBlur={(e) => {
-                  e.target.style.boxShadow = "none";
-                  e.target.style.borderColor = "var(--color-border)";
-                }}
+                className="bg-slate-800/50 border-slate-600/50 text-slate-300 hover:bg-slate-700/50 hover:border-slate-500/50 hover:text-slate-200"
               >
                 Cancel
-              </button>
-              <button
+              </Button>
+              <Button
                 type="submit"
                 disabled={isSubmitting}
-                className="px-6 py-3 border border-transparent rounded-lg font-medium transition-all duration-200 min-h-[44px]"
-                style={{
-                  backgroundColor: "var(--color-primary-600)",
-                  color: "var(--color-text-inverse)",
-                  fontSize: "var(--font-size-sm)",
-                  opacity: isSubmitting ? "0.6" : "1",
-                  cursor: isSubmitting ? "not-allowed" : "pointer",
-                }}
-                onMouseEnter={(e) => {
-                  if (!isSubmitting) {
-                    e.target.style.backgroundColor = "var(--color-primary-700)";
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  if (!isSubmitting) {
-                    e.target.style.backgroundColor = "var(--color-primary-600)";
-                  }
-                }}
-                onFocus={(e) => {
-                  e.target.style.outline = "none";
-                  e.target.style.boxShadow = "var(--shadow-focus)";
-                }}
-                onBlur={(e) => {
-                  e.target.style.boxShadow = "none";
-                }}
+                className={cn(
+                  "bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg min-w-[140px]",
+                  isSubmitting
+                    ? "opacity-70 cursor-not-allowed"
+                    : "hover:from-blue-500 hover:to-purple-500 hover:shadow-xl"
+                )}
               >
-                {isSubmitting ? "Creating..." : "Create Run"}
-              </button>
+                {isSubmitting ? (
+                  <>
+                    <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2" />
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-4 h-4 mr-2" />
+                    Create Run
+                  </>
+                )}
+              </Button>
             </div>
           </form>
         </div>

@@ -31,6 +31,8 @@
   - _Requirements: 2.1, 2.2, 6.1_
 
 - [ ] 4. Modernize input field styling and states
+
+
 - [x] 4.1 Update text input and textarea base styling
 
   - Enhance border styling, padding, and border radius for all input fields
