@@ -44,7 +44,7 @@ const RunDetail = () => {
     );
   }
 
-  const hits = hitsData?.hits || [];
+  const hits = hitsData?.rows || [];
   const hitsTotal = hitsData?.total || 0;
   const hitsTotalPages = Math.ceil(hitsTotal / hitsLimit);
 

@@ -11,12 +11,13 @@
         "clean": "if (Test-Path node_modules) { Remove-Item -Recurse -Force node_modules }; if (Test-Path dist) { Remove-Item -Recurse -Force dist }; if (Test-Path .vite) { Remove-Item -Recurse -Force .vite }"
     },
     "dependencies": {
+        "@tailwindcss/vite": "^4.1.13",
         "@tanstack/react-query": "^5.87.1",
         "axios": "^1.11.0",
         "react": "^19.1.1",
         "react-dom": "^19.1.1",
-        "react-router-dom": "^7.1.1",
-        "react-hot-toast": "^2.4.1"
+        "react-hot-toast": "^2.4.1",
+        "react-router-dom": "^7.1.1"
     },
     "devDependencies": {
         "@eslint/js": "^9.33.0",

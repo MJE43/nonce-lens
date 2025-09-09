@@ -1,11 +1,12 @@
-import { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useState, useEffect } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import { useCreateRun } from "../lib/hooks";
 
 const NewRun = () => {
   const navigate = useNavigate();
   const createRunMutation = useCreateRun();
+  const [searchParams] = useSearchParams();
 
   const [formData, setFormData] = useState({
     server_seed: "",
@@ -15,6 +16,27 @@ const NewRun = () => {
     difficulty: "medium" as const,
     targets: "2,5,10,25,50,100",
   });
+
+  // Pre-fill form from URL parameters (for duplicate functionality)
+  useEffect(() => {
+    const server_seed = searchParams.get("server_seed");
+    const client_seed = searchParams.get("client_seed");
+    const start = searchParams.get("start");
+    const end = searchParams.get("end");
+    const difficulty = searchParams.get("difficulty");
+    const targets = searchParams.get("targets");
+
+    if (server_seed || client_seed || start || end || difficulty || targets) {
+      setFormData({
+        server_seed: server_seed || "",
+        client_seed: client_seed || "",
+        start: start ? parseInt(start) : 1,
+        end: end ? parseInt(end) : 1000,
+        difficulty: (difficulty as any) || "medium",
+        targets: targets || "2,5,10,25,50,100",
+      });
+    }
+  }, [searchParams]);
 
   const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -94,7 +116,7 @@ const NewRun = () => {
     }
   };
 
-  const handleInputChange = (field: string, value: any) => {
+  const handleInputChange = (field: string, value: string | number) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     // Clear error when user starts typing
     if (errors[field]) {
@@ -108,23 +130,47 @@ const NewRun = () => {
     rangeSize > 100000 ? `~${Math.round(rangeSize / 20000)}s` : "< 5s";
 
   return (
-    <div className="max-w-2xl mx-auto">
-      <div className="bg-white shadow rounded-lg">
-        <div className="px-6 py-4 border-b border-gray-200">
-          <h1 className="text-xl font-semibold text-gray-900">
-            Create New Analysis Run
-          </h1>
-          <p className="mt-1 text-sm text-gray-600">
-            Analyze Pump outcomes for a range of nonces with specified targets.
-          </p>
-        </div>
+    <div className="min-h-screen" style={{ backgroundColor: 'var(--color-background)' }}>
+      <div className="container mx-auto px-4 py-8 max-w-4xl">
+        <div 
+          className="rounded-xl border shadow-lg overflow-hidden"
+          style={{ 
+            backgroundColor: 'var(--color-surface)',
+            borderColor: 'var(--color-border)',
+            boxShadow: 'var(--shadow-lg)'
+          }}
+        >
+          <div 
+            className="px-8 py-6 border-b"
+            style={{ 
+              backgroundColor: 'var(--color-surface-secondary)',
+              borderColor: 'var(--color-border)'
+            }}
+          >
+            <h1 
+              className="text-3xl font-semibold mb-2"
+              style={{ color: 'var(--color-text-primary)' }}
+            >
+              Create New Analysis Run
+            </h1>
+            <p 
+              className="text-base leading-relaxed"
+              style={{ color: 'var(--color-text-secondary)' }}
+            >
+              Analyze Pump outcomes for a range of nonces with specified targets.
+            </p>
+          </div>
 
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
+        <form onSubmit={handleSubmit} className="p-8 space-y-8">
           {/* Server Seed */}
-          <div>
+          <div className="form-group">
             <label
               htmlFor="server_seed"
-              className="block text-sm font-medium text-gray-700"
+              className="block font-medium mb-2"
+              style={{ 
+                color: 'var(--color-text-primary)',
+                fontSize: 'var(--font-size-sm)'
+              }}
             >
               Server Seed
             </label>
@@ -134,22 +180,45 @@ const NewRun = () => {
               value={formData.server_seed}
               onChange={(e) => handleInputChange("server_seed", e.target.value)}
               placeholder="Enter the hex server seed..."
-              className={`mt-1 block w-full border rounded-md shadow-sm sm:text-sm font-mono ${
-                errors.server_seed
-                  ? "border-red-300 focus:ring-red-500 focus:border-red-500"
-                  : "border-gray-300 focus:ring-blue-500 focus:border-blue-500"
-              }`}
+              className="block w-full font-mono resize-none"
+              style={{
+                backgroundColor: 'var(--color-surface)',
+                borderColor: errors.server_seed ? 'var(--color-border-error)' : 'var(--color-border)',
+                borderRadius: 'var(--border-radius-lg)',
+                padding: 'var(--spacing-md)',
+                fontSize: 'var(--font-size-sm)',
+                color: 'var(--color-text-primary)',
+                border: '1px solid',
+                transition: 'all var(--transition-fast)'
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = errors.server_seed ? 'var(--color-border-error)' : 'var(--color-border-focus)';
+                e.target.style.boxShadow = errors.server_seed ? '0 0 0 3px rgb(239 68 68 / 0.1)' : 'var(--shadow-focus)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = errors.server_seed ? 'var(--color-border-error)' : 'var(--color-border)';
+                e.target.style.boxShadow = 'none';
+              }}
             />
             {errors.server_seed && (
-              <p className="mt-1 text-sm text-red-600">{errors.server_seed}</p>
+              <p 
+                className="error-message mt-2"
+                style={{ color: 'var(--color-error-600)', fontSize: 'var(--font-size-sm)' }}
+              >
+                {errors.server_seed}
+              </p>
             )}
           </div>
 
           {/* Client Seed */}
-          <div>
+          <div className="form-group">
             <label
               htmlFor="client_seed"
-              className="block text-sm font-medium text-gray-700"
+              className="block font-medium mb-2"
+              style={{ 
+                color: 'var(--color-text-primary)',
+                fontSize: 'var(--font-size-sm)'
+              }}
             >
               Client Seed
             </label>
@@ -159,90 +228,178 @@ const NewRun = () => {
               value={formData.client_seed}
               onChange={(e) => handleInputChange("client_seed", e.target.value)}
               placeholder="Enter the client seed..."
-              className={`mt-1 block w-full border rounded-md shadow-sm sm:text-sm font-mono ${
-                errors.client_seed
-                  ? "border-red-300 focus:ring-red-500 focus:border-red-500"
-                  : "border-gray-300 focus:ring-blue-500 focus:border-blue-500"
-              }`}
+              className="block w-full font-mono"
+              style={{
+                backgroundColor: 'var(--color-surface)',
+                borderColor: errors.client_seed ? 'var(--color-border-error)' : 'var(--color-border)',
+                borderRadius: 'var(--border-radius-lg)',
+                padding: 'var(--spacing-md)',
+                fontSize: 'var(--font-size-sm)',
+                color: 'var(--color-text-primary)',
+                border: '1px solid',
+                transition: 'all var(--transition-fast)'
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = errors.client_seed ? 'var(--color-border-error)' : 'var(--color-border-focus)';
+                e.target.style.boxShadow = errors.client_seed ? '0 0 0 3px rgb(239 68 68 / 0.1)' : 'var(--shadow-focus)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = errors.client_seed ? 'var(--color-border-error)' : 'var(--color-border)';
+                e.target.style.boxShadow = 'none';
+              }}
             />
             {errors.client_seed && (
-              <p className="mt-1 text-sm text-red-600">{errors.client_seed}</p>
+              <p 
+                className="error-message mt-2"
+                style={{ color: 'var(--color-error-600)', fontSize: 'var(--font-size-sm)' }}
+              >
+                {errors.client_seed}
+              </p>
             )}
           </div>
 
           {/* Range */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label
-                htmlFor="start"
-                className="block text-sm font-medium text-gray-700"
-              >
-                Start Nonce
-              </label>
-              <input
-                type="number"
-                id="start"
-                min="1"
-                value={formData.start}
-                onChange={(e) =>
-                  handleInputChange("start", parseInt(e.target.value) || 1)
-                }
-                className={`mt-1 block w-full border rounded-md shadow-sm sm:text-sm ${
-                  errors.start
-                    ? "border-red-300 focus:ring-red-500 focus:border-red-500"
-                    : "border-gray-300 focus:ring-blue-500 focus:border-blue-500"
-                }`}
-              />
-              {errors.start && (
-                <p className="mt-1 text-sm text-red-600">{errors.start}</p>
-              )}
-            </div>
+          <div className="form-group">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              <div>
+                <label
+                  htmlFor="start"
+                  className="block font-medium mb-2"
+                  style={{ 
+                    color: 'var(--color-text-primary)',
+                    fontSize: 'var(--font-size-sm)'
+                  }}
+                >
+                  Start Nonce
+                </label>
+                <input
+                  type="number"
+                  id="start"
+                  min="1"
+                  value={formData.start}
+                  onChange={(e) =>
+                    handleInputChange("start", parseInt(e.target.value) || 1)
+                  }
+                  className="block w-full"
+                  style={{
+                    backgroundColor: 'var(--color-surface)',
+                    borderColor: errors.start ? 'var(--color-border-error)' : 'var(--color-border)',
+                    borderRadius: 'var(--border-radius-lg)',
+                    padding: 'var(--spacing-md)',
+                    fontSize: 'var(--font-size-sm)',
+                    color: 'var(--color-text-primary)',
+                    border: '1px solid',
+                    transition: 'all var(--transition-fast)'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = errors.start ? 'var(--color-border-error)' : 'var(--color-border-focus)';
+                    e.target.style.boxShadow = errors.start ? '0 0 0 3px rgb(239 68 68 / 0.1)' : 'var(--shadow-focus)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = errors.start ? 'var(--color-border-error)' : 'var(--color-border)';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                />
+                {errors.start && (
+                  <p 
+                    className="error-message mt-2"
+                    style={{ color: 'var(--color-error-600)', fontSize: 'var(--font-size-sm)' }}
+                  >
+                    {errors.start}
+                  </p>
+                )}
+              </div>
 
-            <div>
-              <label
-                htmlFor="end"
-                className="block text-sm font-medium text-gray-700"
-              >
-                End Nonce
-              </label>
-              <input
-                type="number"
-                id="end"
-                min={formData.start}
-                value={formData.end}
-                onChange={(e) =>
-                  handleInputChange(
-                    "end",
-                    parseInt(e.target.value) || formData.start
-                  )
-                }
-                className={`mt-1 block w-full border rounded-md shadow-sm sm:text-sm ${
-                  errors.end
-                    ? "border-red-300 focus:ring-red-500 focus:border-red-500"
-                    : "border-gray-300 focus:ring-blue-500 focus:border-blue-500"
-                }`}
-              />
-              {errors.end && (
-                <p className="mt-1 text-sm text-red-600">{errors.end}</p>
-              )}
+              <div>
+                <label
+                  htmlFor="end"
+                  className="block font-medium mb-2"
+                  style={{ 
+                    color: 'var(--color-text-primary)',
+                    fontSize: 'var(--font-size-sm)'
+                  }}
+                >
+                  End Nonce
+                </label>
+                <input
+                  type="number"
+                  id="end"
+                  min={formData.start}
+                  value={formData.end}
+                  onChange={(e) =>
+                    handleInputChange(
+                      "end",
+                      parseInt(e.target.value) || formData.start
+                    )
+                  }
+                  className="block w-full"
+                  style={{
+                    backgroundColor: 'var(--color-surface)',
+                    borderColor: errors.end ? 'var(--color-border-error)' : 'var(--color-border)',
+                    borderRadius: 'var(--border-radius-lg)',
+                    padding: 'var(--spacing-md)',
+                    fontSize: 'var(--font-size-sm)',
+                    color: 'var(--color-text-primary)',
+                    border: '1px solid',
+                    transition: 'all var(--transition-fast)'
+                  }}
+                  onFocus={(e) => {
+                    e.target.style.borderColor = errors.end ? 'var(--color-border-error)' : 'var(--color-border-focus)';
+                    e.target.style.boxShadow = errors.end ? '0 0 0 3px rgb(239 68 68 / 0.1)' : 'var(--shadow-focus)';
+                  }}
+                  onBlur={(e) => {
+                    e.target.style.borderColor = errors.end ? 'var(--color-border-error)' : 'var(--color-border)';
+                    e.target.style.boxShadow = 'none';
+                  }}
+                />
+                {errors.end && (
+                  <p 
+                    className="error-message mt-2"
+                    style={{ color: 'var(--color-error-600)', fontSize: 'var(--font-size-sm)' }}
+                  >
+                    {errors.end}
+                  </p>
+                )}
+              </div>
             </div>
           </div>
 
           {/* Range Info */}
-          <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
-            <div className="text-sm text-blue-700">
-              <strong>Range:</strong> {rangeSize.toLocaleString()} nonces
-              <span className="ml-2">
-                <strong>Estimated time:</strong> {estimatedTime}
-              </span>
+          <div 
+            className="rounded-lg p-4 border"
+            style={{
+              backgroundColor: 'var(--color-primary-50)',
+              borderColor: 'var(--color-primary-200)',
+              boxShadow: 'var(--shadow-sm)'
+            }}
+          >
+            <div 
+              className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-6"
+              style={{ 
+                fontSize: 'var(--font-size-sm)',
+                color: 'var(--color-primary-700)'
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">Range:</span>
+                <span className="font-mono">{rangeSize.toLocaleString()} nonces</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="font-semibold">Estimated time:</span>
+                <span className="font-mono">{estimatedTime}</span>
+              </div>
             </div>
           </div>
 
           {/* Difficulty */}
-          <div>
+          <div className="form-group">
             <label
               htmlFor="difficulty"
-              className="block text-sm font-medium text-gray-700"
+              className="block font-medium mb-2"
+              style={{ 
+                color: 'var(--color-text-primary)',
+                fontSize: 'var(--font-size-sm)'
+              }}
             >
               Difficulty
             </label>
@@ -250,7 +407,25 @@ const NewRun = () => {
               id="difficulty"
               value={formData.difficulty}
               onChange={(e) => handleInputChange("difficulty", e.target.value)}
-              className="mt-1 block w-full border-gray-300 rounded-md shadow-sm focus:ring-blue-500 focus:border-blue-500 sm:text-sm"
+              className="block w-full"
+              style={{
+                backgroundColor: 'var(--color-surface)',
+                borderColor: 'var(--color-border)',
+                borderRadius: 'var(--border-radius-lg)',
+                padding: 'var(--spacing-md)',
+                fontSize: 'var(--font-size-sm)',
+                color: 'var(--color-text-primary)',
+                border: '1px solid',
+                transition: 'all var(--transition-fast)'
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = 'var(--color-border-focus)';
+                e.target.style.boxShadow = 'var(--shadow-focus)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = 'var(--color-border)';
+                e.target.style.boxShadow = 'none';
+              }}
             >
               <option value="easy">Easy</option>
               <option value="medium">Medium</option>
@@ -260,10 +435,14 @@ const NewRun = () => {
           </div>
 
           {/* Targets */}
-          <div>
+          <div className="form-group">
             <label
               htmlFor="targets"
-              className="block text-sm font-medium text-gray-700"
+              className="block font-medium mb-2"
+              style={{ 
+                color: 'var(--color-text-primary)',
+                fontSize: 'var(--font-size-sm)'
+              }}
             >
               Target Multipliers
             </label>
@@ -273,39 +452,114 @@ const NewRun = () => {
               value={formData.targets}
               onChange={(e) => handleInputChange("targets", e.target.value)}
               placeholder="2,5,10,25,50,100"
-              className={`mt-1 block w-full border rounded-md shadow-sm sm:text-sm ${
-                errors.targets
-                  ? "border-red-300 focus:ring-red-500 focus:border-red-500"
-                  : "border-gray-300 focus:ring-blue-500 focus:border-blue-500"
-              }`}
+              className="block w-full"
+              style={{
+                backgroundColor: 'var(--color-surface)',
+                borderColor: errors.targets ? 'var(--color-border-error)' : 'var(--color-border)',
+                borderRadius: 'var(--border-radius-lg)',
+                padding: 'var(--spacing-md)',
+                fontSize: 'var(--font-size-sm)',
+                color: 'var(--color-text-primary)',
+                border: '1px solid',
+                transition: 'all var(--transition-fast)'
+              }}
+              onFocus={(e) => {
+                e.target.style.borderColor = errors.targets ? 'var(--color-border-error)' : 'var(--color-border-focus)';
+                e.target.style.boxShadow = errors.targets ? '0 0 0 3px rgb(239 68 68 / 0.1)' : 'var(--shadow-focus)';
+              }}
+              onBlur={(e) => {
+                e.target.style.borderColor = errors.targets ? 'var(--color-border-error)' : 'var(--color-border)';
+                e.target.style.boxShadow = 'none';
+              }}
             />
-            <p className="mt-1 text-sm text-gray-500">
-              Comma-separated list of multiplier thresholds (e.g.,
-              2,5,10,25,50,100)
+            <p 
+              className="mt-2"
+              style={{ 
+                fontSize: 'var(--font-size-sm)',
+                color: 'var(--color-text-tertiary)'
+              }}
+            >
+              Comma-separated list of multiplier thresholds (e.g., 2,5,10,25,50,100)
             </p>
             {errors.targets && (
-              <p className="mt-1 text-sm text-red-600">{errors.targets}</p>
+              <p 
+                className="error-message mt-2"
+                style={{ color: 'var(--color-error-600)', fontSize: 'var(--font-size-sm)' }}
+              >
+                {errors.targets}
+              </p>
             )}
           </div>
 
           {/* Actions */}
-          <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200">
+          <div 
+            className="flex flex-col sm:flex-row justify-end gap-3 pt-6 border-t"
+            style={{ borderColor: 'var(--color-border)' }}
+          >
             <button
               type="button"
               onClick={() => navigate("/")}
-              className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+              className="px-6 py-3 border rounded-lg font-medium transition-all duration-200 min-h-[44px]"
+              style={{
+                backgroundColor: 'var(--color-surface)',
+                borderColor: 'var(--color-border)',
+                color: 'var(--color-text-primary)',
+                fontSize: 'var(--font-size-sm)'
+              }}
+              onMouseEnter={(e) => {
+                e.target.style.backgroundColor = 'var(--color-surface-secondary)';
+                e.target.style.borderColor = 'var(--color-border-secondary)';
+              }}
+              onMouseLeave={(e) => {
+                e.target.style.backgroundColor = 'var(--color-surface)';
+                e.target.style.borderColor = 'var(--color-border)';
+              }}
+              onFocus={(e) => {
+                e.target.style.outline = 'none';
+                e.target.style.boxShadow = 'var(--shadow-focus)';
+                e.target.style.borderColor = 'var(--color-border-focus)';
+              }}
+              onBlur={(e) => {
+                e.target.style.boxShadow = 'none';
+                e.target.style.borderColor = 'var(--color-border)';
+              }}
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isSubmitting}
-              className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-6 py-3 border border-transparent rounded-lg font-medium transition-all duration-200 min-h-[44px]"
+              style={{
+                backgroundColor: 'var(--color-primary-600)',
+                color: 'var(--color-text-inverse)',
+                fontSize: 'var(--font-size-sm)',
+                opacity: isSubmitting ? '0.6' : '1',
+                cursor: isSubmitting ? 'not-allowed' : 'pointer'
+              }}
+              onMouseEnter={(e) => {
+                if (!isSubmitting) {
+                  e.target.style.backgroundColor = 'var(--color-primary-700)';
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!isSubmitting) {
+                  e.target.style.backgroundColor = 'var(--color-primary-600)';
+                }
+              }}
+              onFocus={(e) => {
+                e.target.style.outline = 'none';
+                e.target.style.boxShadow = 'var(--shadow-focus)';
+              }}
+              onBlur={(e) => {
+                e.target.style.boxShadow = 'none';
+              }}
             >
               {isSubmitting ? "Creating..." : "Create Run"}
             </button>
           </div>
         </form>
+        </div>
       </div>
     </div>
   );

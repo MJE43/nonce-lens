@@ -23,10 +23,10 @@ async def on_startup():
     await create_db_and_tables()
 
 
-# Routers will be included in Task 3
-# from .routers import runs, verify
-# app.include_router(runs.router)
-# app.include_router(verify.router)
+from .routers import runs, verify
+
+app.include_router(runs.router)
+app.include_router(verify.router)
 
 
 @app.get("/healthz")

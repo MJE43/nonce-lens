@@ -56,3 +56,8 @@ class HitRow(BaseModel):
 class HitsPage(BaseModel):
     total: int
     rows: List[HitRow]
+
+
+class RunListResponse(BaseModel):
+    runs: List[RunRead]
+    total: int
