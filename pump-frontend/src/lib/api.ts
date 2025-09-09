@@ -1,11 +1,11 @@
 import axios from "axios";
-import { 
-  validateRunDetail, 
-  validateHit, 
-  formatValidationErrors, 
+import {
+  validateRunDetail,
+  validateHit,
+  formatValidationErrors,
   formatValidationWarnings,
-  ValidationResult 
-} from './validation';
+  ValidationResult,
+} from "./validation";
 
 // Extend axios config to include metadata for debugging
 declare module 'axios' {
@@ -91,44 +91,62 @@ apiClient.interceptors.response.use(
   (response) => {
     const debugInfo = response.config.metadata?.debugInfo;
     const responseTime = Date.now();
-    const duration = debugInfo?.requestTime ? responseTime - debugInfo.requestTime : 0;
+    const duration = debugInfo?.requestTime
+      ? responseTime - debugInfo.requestTime
+      : 0;
 
     // Validate response data based on endpoint
     if (isDevelopment && response.data) {
-      const url = response.config.url || '';
-      
+      const url = response.config.url || "";
+
       // Validate RunDetail responses
-      if (url.match(/\/runs\/[^\/]+$/) && !url.includes('/hits')) {
+      if (url.match(/\/runs\/[^\/]+$/) && !url.includes("/hits")) {
         const validation = validateRunDetail(response.data);
         if (!validation.isValid) {
-          console.error('❌ RunDetail validation failed:', formatValidationErrors(validation.errors));
+          console.error(
+            "❌ RunDetail validation failed:",
+            formatValidationErrors(validation.errors)
+          );
         }
         if (validation.warnings.length > 0) {
-          console.warn('⚠️ RunDetail validation warnings:', formatValidationWarnings(validation.warnings));
+          console.warn(
+            "⚠️ RunDetail validation warnings:",
+            formatValidationWarnings(validation.warnings)
+          );
         }
       }
-      
+
       // Validate hits responses
-      if (url.includes('/hits') && response.data.rows) {
+      if (url.includes("/hits") && response.data.rows) {
         response.data.rows.forEach((hit: unknown, index: number) => {
           const validation = validateHit(hit);
           if (!validation.isValid) {
-            console.error(`❌ Hit[${index}] validation failed:`, formatValidationErrors(validation.errors));
+            console.error(
+              `❌ Hit[${index}] validation failed:`,
+              formatValidationErrors(validation.errors)
+            );
           }
           if (validation.warnings.length > 0) {
-            console.warn(`⚠️ Hit[${index}] validation warnings:`, formatValidationWarnings(validation.warnings));
+            console.warn(
+              `⚠️ Hit[${index}] validation warnings:`,
+              formatValidationWarnings(validation.warnings)
+            );
           }
         });
       }
     }
 
     if (isDevelopment) {
-      console.group(`✅ API Response: ${response.status} ${debugInfo?.method || 'GET'} ${debugInfo?.apiUrl || response.config.url}`);
-      console.log('Response Status:', response.status);
-      console.log('Response Headers:', response.headers);
-      console.log('Response Data:', response.data);
-      console.log('Duration:', `${duration}ms`);
-      console.log('Timestamp:', new Date().toISOString());
+      console.group(
+        `✅ API Response: ${response.status} ${debugInfo?.method || "GET"} ${
+          debugInfo?.apiUrl || response.config.url
+        }`
+      );
+      console.log("Response Status:", response.status);
+      console.log("Response Headers:", response.headers);
+      console.log("Response Data:", response.data);
+      console.log("Duration:", `${duration}ms`);
+      console.log("Timestamp:", new Date().toISOString());
       console.groupEnd();
     }
 
@@ -137,46 +155,57 @@ apiClient.interceptors.response.use(
   (error) => {
     const debugInfo = error.config?.metadata?.debugInfo;
     const responseTime = Date.now();
-    const duration = debugInfo?.requestTime ? responseTime - debugInfo.requestTime : 0;
+    const duration = debugInfo?.requestTime
+      ? responseTime - debugInfo.requestTime
+      : 0;
 
     // Categorize error types
-    let errorType: APIError['type'] = 'unknown';
+    let errorType: APIError["type"] = "unknown";
     let userMessage = "An unexpected error occurred";
 
-    if (error.code === 'ECONNABORTED' || error.code === 'TIMEOUT') {
-      errorType = 'timeout';
-      userMessage = 'Request timed out. Please check your connection and try again.';
-    } else if (error.code === 'NETWORK_ERROR' || error.code === 'ERR_NETWORK') {
-      errorType = 'network';
-      userMessage = 'Network connection failed. Please check your internet connection.';
+    if (error.code === "ECONNABORTED" || error.code === "TIMEOUT") {
+      errorType = "timeout";
+      userMessage =
+        "Request timed out. Please check your connection and try again.";
+    } else if (error.code === "NETWORK_ERROR" || error.code === "ERR_NETWORK") {
+      errorType = "network";
+      userMessage =
+        "Network connection failed. Please check your internet connection.";
     } else if (error.response) {
-      errorType = 'http';
-      
+      errorType = "http";
+
       // Handle specific HTTP status codes
       switch (error.response.status) {
         case 404:
-          userMessage = 'Resource not found. The requested item may have been deleted.';
+          userMessage =
+            "Resource not found. The requested item may have been deleted.";
           break;
         case 400:
-          userMessage = error.response.data?.error?.message || 'Invalid request. Please check your input.';
+          userMessage =
+            error.response.data?.error?.message ||
+            "Invalid request. Please check your input.";
           break;
         case 401:
-          userMessage = 'Authentication required. Please log in again.';
+          userMessage = "Authentication required. Please log in again.";
           break;
         case 403:
-          userMessage = 'Access denied. You do not have permission to perform this action.';
+          userMessage =
+            "Access denied. You do not have permission to perform this action.";
           break;
         case 429:
-          userMessage = 'Too many requests. Please wait a moment and try again.';
+          userMessage =
+            "Too many requests. Please wait a moment and try again.";
           break;
         case 500:
         case 502:
         case 503:
         case 504:
-          userMessage = 'Server error. Please try again later.';
+          userMessage = "Server error. Please try again later.";
           break;
         default:
-          userMessage = error.response.data?.error?.message || `Server returned error ${error.response.status}`;
+          userMessage =
+            error.response.data?.error?.message ||
+            `Server returned error ${error.response.status}`;
       }
     }
 
@@ -192,27 +221,31 @@ apiClient.interceptors.response.use(
           url: error.config?.url,
           method: error.config?.method,
           params: error.config?.params,
-        }
+        },
       },
       timestamp: new Date().toISOString(),
       type: errorType,
     };
 
     if (isDevelopment) {
-      console.group(`❌ API Error: ${error.response?.status || error.code} ${debugInfo?.method || 'GET'} ${debugInfo?.apiUrl || error.config?.url}`);
-      console.error('Error Type:', errorType);
-      console.error('Status:', error.response?.status);
-      console.error('Message:', userMessage);
-      console.error('Original Error:', error.message);
-      console.error('Response Data:', error.response?.data);
-      console.error('Request Config:', {
+      console.group(
+        `❌ API Error: ${error.response?.status || error.code} ${
+          debugInfo?.method || "GET"
+        } ${debugInfo?.apiUrl || error.config?.url}`
+      );
+      console.error("Error Type:", errorType);
+      console.error("Status:", error.response?.status);
+      console.error("Message:", userMessage);
+      console.error("Original Error:", error.message);
+      console.error("Response Data:", error.response?.data);
+      console.error("Request Config:", {
         url: error.config?.url,
         method: error.config?.method,
         params: error.config?.params,
         data: error.config?.data,
       });
-      console.error('Duration:', `${duration}ms`);
-      console.error('Timestamp:', apiError.timestamp);
+      console.error("Duration:", `${duration}ms`);
+      console.error("Timestamp:", apiError.timestamp);
       console.groupEnd();
     }
 
@@ -266,6 +299,7 @@ export interface RunDetail {
 export interface Hit {
   nonce: number;
   max_multiplier: number;
+  distance_prev?: number | null;
 }
 
 export interface RunListFilters {
@@ -279,6 +313,8 @@ export interface HitsFilters {
   min_multiplier?: number;
   limit?: number;
   offset?: number;
+  include_distance?: "per_multiplier";
+  tol?: number;
 }
 
 // Export types for use in components
@@ -291,19 +327,19 @@ export const testApiConnection = async (): Promise<{
   responseTime?: number;
 }> => {
   const startTime = Date.now();
-  
+
   try {
     // Test with a simple endpoint - using runs list with limit 1
-    await apiClient.get('/runs', { params: { limit: 1 } });
+    await apiClient.get("/runs", { params: { limit: 1 } });
     const responseTime = Date.now() - startTime;
-    
+
     return {
       success: true,
       responseTime,
     };
   } catch (error: unknown) {
     const responseTime = Date.now() - startTime;
-    
+
     return {
       success: false,
       error: error.message,
@@ -321,35 +357,53 @@ export const getErrorDetails = (error: unknown): APIError | null => {
 export const validateApiResponse = {
   runDetail: (data: unknown): ValidationResult => validateRunDetail(data),
   hit: (data: unknown): ValidationResult => validateHit(data),
-  
+
   // Validate and log results
-  runDetailWithLogging: (data: unknown, context = 'API Response'): ValidationResult => {
+  runDetailWithLogging: (
+    data: unknown,
+    context = "API Response"
+  ): ValidationResult => {
     const validation = validateRunDetail(data);
-    
+
     if (!validation.isValid) {
-      console.error(`${context} - RunDetail validation failed:`, formatValidationErrors(validation.errors));
+      console.error(
+        `${context} - RunDetail validation failed:`,
+        formatValidationErrors(validation.errors)
+      );
     }
-    
+
     if (validation.warnings.length > 0) {
-      console.warn(`${context} - RunDetail validation warnings:`, formatValidationWarnings(validation.warnings));
+      console.warn(
+        `${context} - RunDetail validation warnings:`,
+        formatValidationWarnings(validation.warnings)
+      );
     }
-    
+
     return validation;
   },
-  
-  hitWithLogging: (data: unknown, context = 'API Response'): ValidationResult => {
+
+  hitWithLogging: (
+    data: unknown,
+    context = "API Response"
+  ): ValidationResult => {
     const validation = validateHit(data);
-    
+
     if (!validation.isValid) {
-      console.error(`${context} - Hit validation failed:`, formatValidationErrors(validation.errors));
+      console.error(
+        `${context} - Hit validation failed:`,
+        formatValidationErrors(validation.errors)
+      );
     }
-    
+
     if (validation.warnings.length > 0) {
-      console.warn(`${context} - Hit validation warnings:`, formatValidationWarnings(validation.warnings));
+      console.warn(
+        `${context} - Hit validation warnings:`,
+        formatValidationWarnings(validation.warnings)
+      );
     }
-    
+
     return validation;
-  }
+  },
 };
 
 // API functions
@@ -382,4 +436,36 @@ export const verifyApi = {
     nonce: number;
     difficulty: string;
   }) => apiClient.get("/verify", { params }),
+};
+
+// Distances API
+export interface DistanceStatsResponse {
+  multiplier: number;
+  tol: number;
+  count: number;
+  nonces: number[];
+  distances: number[];
+  stats:
+    | {
+        mean: number;
+        median: number;
+        min: number;
+        max: number;
+        p90: number;
+        p99: number;
+        stddev: number;
+        cv: number;
+      }
+    | {};
+}
+
+export const distancesApi = {
+  get: (id: string, params: { multiplier: number; tol?: number }) =>
+    apiClient.get<DistanceStatsResponse>(`/runs/${id}/distances`, { params }),
+  getCsvUrl: (id: string, multiplier: number, tol?: number) => {
+    const url = new URL(`${API_BASE}/runs/${id}/distances.csv`);
+    url.searchParams.set("multiplier", String(multiplier));
+    if (tol !== undefined) url.searchParams.set("tol", String(tol));
+    return url.toString();
+  },
 };

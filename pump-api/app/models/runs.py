@@ -44,5 +44,6 @@ class Hit(SQLModel, table=True):
 
     __table_args__ = (
         Index("ix_hits_run_nonce", "run_id", "nonce"),
+        Index("idx_hits_run_mult_nonce", "run_id", "max_multiplier", "nonce"),
         ForeignKeyConstraint(["run_id"], ["runs.id"], ondelete="CASCADE"),
     )

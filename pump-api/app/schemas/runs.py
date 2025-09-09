@@ -51,11 +51,21 @@ class RunDetail(BaseModel):
 class HitRow(BaseModel):
     nonce: int
     max_multiplier: float
+    distance_prev: int | None = None
 
 
 class HitsPage(BaseModel):
     total: int
     rows: List[HitRow]
+
+
+class DistanceStatsPayload(BaseModel):
+    multiplier: float
+    tol: float
+    count: int
+    nonces: List[int]
+    distances: List[int]
+    stats: dict
 
 
 class RunListResponse(BaseModel):

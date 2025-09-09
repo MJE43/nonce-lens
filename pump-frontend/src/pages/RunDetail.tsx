@@ -1,42 +1,285 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import { useRun, useRunHits } from "../lib/hooks";
 import { RunActionsBar } from "../components/RunActionsBar";
 import { HitFilters } from "../components/HitFilters";
 import { ChevronLeftIcon, ChevronRightIcon } from "@heroicons/react/24/outline";
+import { distancesApi, type DistanceStatsResponse } from "../lib/api";
+import {
+  Card,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "../components/ui/card";
+import { Badge } from "../components/ui/badge";
+import { Button } from "../components/ui/button";
+import { Separator } from "../components/ui/separator";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "../components/ui/table";
 
-const StatCard = ({
-  label,
-  value,
-  unit,
-  className = "",
+type DistanceMetricStats = {
+  mean: number;
+  median: number;
+  min: number;
+  max: number;
+  p90: number;
+  p99: number;
+  stddev: number;
+  cv: number;
+};
+
+const formatNumber = (n: number | string | null | undefined) => {
+  if (n === undefined || n === null || Number.isNaN(Number(n))) return "—";
+  return new Intl.NumberFormat().format(Number(n));
+};
+
+const formatInteger = (n: number) => {
+  return new Intl.NumberFormat().format(Math.trunc(n));
+};
+
+const DistanceStats = ({
+  runId,
+  multipliers,
+  selected,
+  onChangeSelected,
 }: {
-  label: string;
-  value: React.ReactNode;
-  unit?: string;
-  className?: string;
-}) => (
-  <div className={` ${className}`}>
-    <dt
-      className="text-sm font-medium"
-      style={{ color: "var(--color-text-secondary)" }}
-    >
-      {label}
-    </dt>
-    <dd className="mt-1 flex items-baseline gap-x-2">
-      <span className="text-2xl font-semibold tracking-tight">{value}</span>
-      {unit && (
-        <span
-          className="text-sm"
-          style={{ color: "var(--color-text-tertiary)" }}
-        >
-          {unit}
-        </span>
-      )}
-    </dd>
-  </div>
-);
+  runId: string;
+  multipliers: number[];
+  selected: number;
+  onChangeSelected: (m: number) => void;
+}) => {
+  const [data, setData] = useState<DistanceStatsResponse | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    distancesApi
+      .get(runId, { multiplier: selected })
+      .then((res) => {
+        if (!cancelled) setData(res.data);
+      })
+      .catch((e: unknown) => {
+        const msg = (e as Error)?.message || "Failed to load distances";
+        if (!cancelled) setError(msg);
+      })
+      .finally(() => !cancelled && setLoading(false));
+    return () => {
+      cancelled = true;
+    };
+  }, [runId, selected]);
+
+  const csvUrl = useMemo(() => {
+    return distancesApi.getCsvUrl(runId, selected);
+  }, [runId, selected]);
+
+  return (
+    <Card className="bg-card/50 border-border/50">
+      <CardHeader className="pb-3">
+        <div className="flex items-center justify-between">
+          <CardTitle className="text-sm font-medium text-muted-foreground">
+            Distances for {selected}×
+          </CardTitle>
+          <div className="flex items-center gap-2">
+            <select
+              className="block border rounded-md text-sm px-2 py-1 bg-background"
+              value={selected}
+              onChange={(e) => onChangeSelected(parseFloat(e.target.value))}
+            >
+              {multipliers.map((m) => (
+                <option key={m} value={m}>
+                  {m}
+                </option>
+              ))}
+            </select>
+            <Button size="sm" asChild>
+              <a href={csvUrl}>Download CSV</a>
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {loading && (
+          <div className="text-sm text-muted-foreground">Loading…</div>
+        )}
+        {error && <div className="text-sm text-destructive">{error}</div>}
+        {!loading && !error && data && (
+          <div className="space-y-6">
+            {data.count < 2 ? (
+              <div className="text-sm text-muted-foreground">
+                Not enough data (need ≥2 occurrences).
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+                  {/* Primary Stats */}
+                  <Card className="bg-card/50 border-border/50">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">
+                        Count & Central Tendency
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">
+                          Count
+                        </span>
+                        <span className="text-lg font-semibold">
+                          {data.count}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">
+                          Mean
+                        </span>
+                        <span className="text-lg font-semibold">
+                          {formatNumber(
+                            (data.stats as DistanceMetricStats).mean
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">
+                          Median
+                        </span>
+                        <span className="text-lg font-semibold">
+                          {formatNumber(
+                            (data.stats as DistanceMetricStats).median
+                          )}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Range Stats */}
+                  <Card className="bg-card/50 border-border/50">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">
+                        Range & Percentiles
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">
+                          Min
+                        </span>
+                        <span className="text-lg font-semibold">
+                          {formatNumber(
+                            (data.stats as DistanceMetricStats).min
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">
+                          Max
+                        </span>
+                        <span className="text-lg font-semibold">
+                          {formatNumber(
+                            (data.stats as DistanceMetricStats).max
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">
+                          p90
+                        </span>
+                        <span className="text-lg font-semibold">
+                          {formatNumber(
+                            (data.stats as DistanceMetricStats).p90
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">
+                          p99
+                        </span>
+                        <span className="text-lg font-semibold">
+                          {formatNumber(
+                            (data.stats as DistanceMetricStats).p99
+                          )}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+
+                  {/* Variability Stats */}
+                  <Card className="bg-card/50 border-border/50">
+                    <CardHeader className="pb-3">
+                      <CardTitle className="text-sm font-medium text-muted-foreground">
+                        Variability
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent className="space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">
+                          Std Dev
+                        </span>
+                        <span className="text-lg font-semibold">
+                          {formatNumber(
+                            (data.stats as DistanceMetricStats).stddev
+                          )}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-sm text-muted-foreground">
+                          CV
+                        </span>
+                        <span className="text-lg font-semibold">
+                          {formatNumber((data.stats as DistanceMetricStats).cv)}
+                        </span>
+                      </div>
+                    </CardContent>
+                  </Card>
+                </div>
+
+                <Separator />
+
+                <div>
+                  <h4 className="text-sm font-medium mb-4">Raw Distances</h4>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>#</TableHead>
+                        <TableHead>From → To</TableHead>
+                        <TableHead>Distance</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {data.nonces.slice(1).map((to: number, idx: number) => {
+                        const from = data.nonces[idx];
+                        const dist = data.distances[idx];
+                        return (
+                          <TableRow key={idx}>
+                            <TableCell>{idx + 1}</TableCell>
+                            <TableCell>
+                              {from} → {to}
+                            </TableCell>
+                            <TableCell>
+                              {formatInteger(dist as number)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+};
 
 const RunDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -45,12 +288,17 @@ const RunDetail = () => {
   const [selectedTargets, setSelectedTargets] = useState<number[]>([]);
   const [hitsPage, setHitsPage] = useState(0);
   const hitsLimit = 100;
+  const [distancesOpen, setDistancesOpen] = useState(false);
+  const [selectedDistanceMultiplier, setSelectedDistanceMultiplier] = useState<
+    number | null
+  >(null);
 
   const { data: run, isLoading: runLoading, error: runError } = useRun(id!);
   const { data: hitsData, isLoading: hitsLoading } = useRunHits(id!, {
     min_multiplier: minMultiplier,
     limit: hitsLimit,
     offset: hitsPage * hitsLimit,
+    include_distance: "per_multiplier",
   });
 
   const hits = hitsData?.rows || [];
@@ -86,6 +334,8 @@ const RunDetail = () => {
     setSelectedTargets([]);
     setHitsPage(0);
   };
+
+  // Local helpers are declared above; no duplicates here
 
   if (!id) {
     return <div>Invalid run ID</div>;
@@ -128,483 +378,398 @@ const RunDetail = () => {
     return `${seconds}s`;
   };
 
-  const copyToClipboard = (text: string, label: string) => {
-    navigator.clipboard
-      .writeText(text)
-      .then(() => {
-        toast.success(`${label} copied to clipboard`);
-      })
-      .catch(() => {
-        toast.error("Failed to copy to clipboard");
-      });
-  };
-
-  const difficultyColorClasses = {
-    easy: "bg-green-400/10 text-green-400 ring-green-400/20",
-    medium: "bg-yellow-400/10 text-yellow-400 ring-yellow-400/20",
-    hard: "bg-orange-400/10 text-orange-400 ring-orange-400/20",
-    expert: "bg-red-400/10 text-red-400 ring-red-400/20",
-  };
-
   return (
-    <div className="space-y-6 p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto">
-      {/* Header */}
-      <header className="flex flex-col gap-4">
-        <div>
-          <Link
-            to="/"
-            className="text-sm inline-flex items-center gap-2 hover:underline"
-            style={{ color: "var(--color-text-secondary)" }}
-          >
-            <ChevronLeftIcon className="h-4 w-4" />
-            Back to runs
-          </Link>
-          <h1 className="mt-2 text-3xl font-bold tracking-tight text-white">
-            Analysis Run Details
-          </h1>
-          <p
-            className="mt-1 text-sm"
-            style={{ color: "var(--color-text-tertiary)" }}
-          >
-            Run ID: {id}
-          </p>
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto px-4 py-8 max-w-7xl space-y-8">
+        {/* Header */}
+        <div className="space-y-4">
+          <Button variant="ghost" size="sm" asChild className="pl-0">
+            <Link
+              to="/"
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <ChevronLeftIcon className="h-4 w-4 mr-2" />
+              Back to runs
+            </Link>
+          </Button>
+
+          <div className="space-y-2">
+            <h1 className="text-4xl font-bold tracking-tight">
+              Analysis Run Details
+            </h1>
+            <p className="text-muted-foreground">
+              Run ID:{" "}
+              <code className="text-xs bg-muted px-1.5 py-0.5 rounded">
+                {id}
+              </code>
+            </p>
+          </div>
         </div>
-      </header>
 
-      {/* Sticky Actions Bar */}
-      <RunActionsBar
-        run={run}
-        minMultiplier={undefined} // Moved to HitFilters
-        onMinMultiplierChange={() => {}} // Not used anymore
-        onJumpToNonce={handleJumpToNonce}
-      />
+        {/* Actions Bar */}
+        <RunActionsBar
+          run={run}
+          minMultiplier={undefined}
+          onMinMultiplierChange={() => {}}
+          onJumpToNonce={handleJumpToNonce}
+        />
 
-      {/* Main Content Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          {/* Summary Card */}
-          <div
-            className="rounded-lg border"
-            style={{
-              backgroundColor: "var(--color-surface)",
-              borderColor: "var(--color-border)",
-            }}
-          >
-            <div className="p-6">
-              <h2 className="text-base font-semibold leading-7">Summary</h2>
-              <dl className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-6">
-                <StatCard
-                  label="Nonce Range"
-                  value={
-                    <div className="text-lg">
-                      {run.summary.count.toLocaleString()}
+        {/* Main Content Grid */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="lg:col-span-2 space-y-8">
+            {/* Summary Cards */}
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+              <Card>
+                <CardContent className="p-6">
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Nonce Range
+                    </p>
+                    <div>
+                      <div className="text-2xl font-bold">
+                        {run.summary.count.toLocaleString()}
+                      </div>
+                      <p className="text-xs text-muted-foreground">
+                        {run.nonce_start.toLocaleString()} -{" "}
+                        {run.nonce_end.toLocaleString()}
+                      </p>
                     </div>
-                  }
-                  unit={`(${run.nonce_start.toLocaleString()} - ${run.nonce_end.toLocaleString()})`}
-                />
-                <StatCard
-                  label="Duration"
-                  value={formatDuration(run.duration_ms)}
-                />
-                <StatCard
-                  label="Total Hits"
-                  value={hitsTotal.toLocaleString()}
-                />
-                <StatCard
-                  label="Max Multiplier"
-                  value={`${run.summary.max_multiplier.toFixed(2)}x`}
-                />
+                  </div>
+                </CardContent>
+              </Card>
 
-                <div>
-                  <dt
-                    className="text-sm font-medium"
-                    style={{ color: "var(--color-text-secondary)" }}
-                  >
-                    Difficulty
-                  </dt>
-                  <dd className="mt-1">
-                    <span
-                      className={`inline-flex items-center rounded-md px-2 py-1 text-xs font-medium capitalize ring-1 ring-inset ${
-                        difficultyColorClasses[
-                          run.difficulty as keyof typeof difficultyColorClasses
-                        ]
-                      }`}
+              <Card>
+                <CardContent className="p-6">
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Duration
+                    </p>
+                    <div className="text-2xl font-bold">
+                      {formatDuration(run.duration_ms)}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-6">
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Total Hits
+                    </p>
+                    <div className="text-2xl font-bold">
+                      {hitsTotal.toLocaleString()}
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent className="p-6">
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Max Multiplier
+                    </p>
+                    <div className="text-2xl font-bold">
+                      {run.summary.max_multiplier.toFixed(2)}x
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+
+            {/* Additional Info Card */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Run Information</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Difficulty
+                    </p>
+                    <Badge
+                      variant={
+                        run.difficulty === "expert"
+                          ? "destructive"
+                          : run.difficulty === "hard"
+                          ? "default"
+                          : "secondary"
+                      }
+                      className="capitalize"
                     >
                       {run.difficulty}
-                    </span>
-                  </dd>
-                </div>
-                <StatCard
-                  label="Median Multiplier"
-                  value={`${run.summary.median_multiplier.toFixed(2)}x`}
-                />
-                <StatCard label="Engine" value={run.engine_version} />
-                <div className="sm:col-span-1">
-                  <dt
-                    className="text-sm font-medium"
-                    style={{ color: "var(--color-text-secondary)" }}
-                  >
-                    Targets
-                  </dt>
-                  <dd className="mt-1">
-                    <div className="flex flex-wrap gap-1">
-                      {run.targets.slice(0, 6).map((target, index) => (
-                        <span
-                          key={index}
-                          className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium"
-                          style={{
-                            backgroundColor: "var(--color-background)",
-                            color: "var(--color-text-secondary)",
-                            border: "1px solid var(--color-border)",
-                          }}
-                        >
-                          {target}x
-                        </span>
-                      ))}
-                      {run.targets.length > 6 && (
-                        <span
-                          className="inline-flex items-center rounded px-2 py-0.5 text-xs font-medium"
-                          style={{
-                            backgroundColor: "var(--color-background)",
-                            color: "var(--color-text-tertiary)",
-                            border: "1px solid var(--color-border)",
-                          }}
-                        >
-                          +{run.targets.length - 6} more
-                        </span>
-                      )}
-                    </div>
-                  </dd>
-                </div>
-              </dl>
-            </div>
-          </div>
-          {/* Seeds */}
-          <div
-            className="rounded-lg border"
-            style={{
-              backgroundColor: "var(--color-surface)",
-              borderColor: "var(--color-border)",
-            }}
-          >
-            <div className="p-6">
-              <h2 className="text-base font-semibold leading-7">Seeds</h2>
-              <div className="mt-4 grid grid-cols-1 gap-3">
-                <div>
-                  <label
-                    className="block text-xs font-medium mb-2"
-                    style={{ color: "var(--color-text-secondary)" }}
-                  >
-                    Server Seed
-                  </label>
-                  <div className="flex items-center gap-x-2">
-                    <code
-                      className="flex-1 text-xs font-mono rounded px-3 py-2 truncate"
-                      style={{
-                        backgroundColor: "var(--color-background)",
-                        color: "var(--color-text-secondary)",
-                        border: "1px solid var(--color-border)",
-                      }}
-                    >
-                      {run.server_seed}
-                    </code>
-                    <button
-                      onClick={() =>
-                        copyToClipboard(run.server_seed, "Server seed")
-                      }
-                      className="shrink-0 rounded-md px-2 py-2 text-xs font-medium ring-1 ring-inset hover:bg-gray-50/5"
-                      style={{
-                        backgroundColor: "var(--color-surface)",
-                        color: "var(--color-text-secondary)",
-                        borderColor: "var(--color-border)",
-                      }}
-                    >
-                      Copy
-                    </button>
+                    </Badge>
                   </div>
-                </div>
-                <div>
-                  <label
-                    className="block text-xs font-medium mb-2"
-                    style={{ color: "var(--color-text-secondary)" }}
-                  >
-                    Client Seed
-                  </label>
-                  <div className="flex items-center gap-x-2">
-                    <code
-                      className="flex-1 text-xs font-mono rounded px-3 py-2 truncate"
-                      style={{
-                        backgroundColor: "var(--color-background)",
-                        color: "var(--color-text-secondary)",
-                        border: "1px solid var(--color-border)",
-                      }}
-                    >
-                      {run.client_seed}
-                    </code>
-                    <button
-                      onClick={() =>
-                        copyToClipboard(run.client_seed, "Client seed")
-                      }
-                      className="shrink-0 rounded-md px-2 py-2 text-xs font-medium ring-1 ring-inset hover:bg-gray-50/5"
-                      style={{
-                        backgroundColor: "var(--color-surface)",
-                        color: "var(--color-text-secondary)",
-                        borderColor: "var(--color-border)",
-                      }}
-                    >
-                      Copy
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
 
-        <div className="lg:col-span-1">
-          {/* Target Counts */}
-          <div
-            className="rounded-lg border"
-            style={{
-              backgroundColor: "var(--color-surface)",
-              borderColor: "var(--color-border)",
-            }}
-          >
-            <div className="p-6">
-              <h2 className="text-base font-semibold leading-7">
-                Target Counts
-              </h2>
-              <div className="mt-4 space-y-2">
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Median Multiplier
+                    </p>
+                    <div className="text-lg font-semibold">
+                      {run.summary.median_multiplier.toFixed(2)}x
+                    </div>
+                  </div>
+
+                  <div className="space-y-2">
+                    <p className="text-sm font-medium text-muted-foreground">
+                      Engine
+                    </p>
+                    <code className="text-sm bg-muted px-2 py-1 rounded">
+                      {run.engine_version}
+                    </code>
+                  </div>
+                </div>
+
+                <Separator />
+
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-muted-foreground">
+                    Targets
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {run.targets.slice(0, 8).map((target, index) => (
+                      <Badge key={index} variant="outline">
+                        {target}x
+                      </Badge>
+                    ))}
+                    {run.targets.length > 8 && (
+                      <Badge variant="secondary">
+                        +{run.targets.length - 8} more
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <div className="lg:col-span-1 space-y-8">
+            {/* Target Counts */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Target Counts</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-3">
                 {Object.entries(run.summary.counts_by_target)
                   .sort((a, b) => parseFloat(a[0]) - parseFloat(b[0]))
                   .map(([target, count]) => (
-                    <div
+                    <Button
                       key={target}
-                      className="flex items-center justify-between py-2 px-3 rounded"
-                      style={{ backgroundColor: "var(--color-background)" }}
+                      variant="ghost"
+                      className="w-full justify-between h-auto p-3 text-left hover:bg-muted/50"
+                      onClick={() => {
+                        setSelectedDistanceMultiplier(parseFloat(target));
+                        setDistancesOpen(true);
+                      }}
                     >
-                      <span
-                        className="text-sm font-medium"
-                        style={{ color: "var(--color-text-secondary)" }}
-                      >
+                      <span className="text-sm font-medium text-muted-foreground">
                         ≥{target}x
                       </span>
-                      <span className="text-sm font-semibold">
+                      <Badge variant="secondary">
                         {count.toLocaleString()}
-                      </span>
-                    </div>
+                      </Badge>
+                    </Button>
                   ))}
+              </CardContent>
+            </Card>
+
+            {/* Distances */}
+            <Card>
+              <CardHeader>
+                <Button
+                  variant="ghost"
+                  className="w-full justify-between h-auto p-0 text-left"
+                  onClick={() => setDistancesOpen((v) => !v)}
+                >
+                  <CardTitle>Distances</CardTitle>
+                  <span className="text-sm text-muted-foreground">
+                    {distancesOpen ? "Hide" : "Show"}
+                  </span>
+                </Button>
+              </CardHeader>
+              {distancesOpen && (
+                <CardContent>
+                  {run.targets.length > 0 && (
+                    <DistanceStats
+                      runId={id!}
+                      multipliers={run.targets}
+                      selected={
+                        (selectedDistanceMultiplier ?? run.targets[0]) as number
+                      }
+                      onChangeSelected={(m) => setSelectedDistanceMultiplier(m)}
+                    />
+                  )}
+                </CardContent>
+              )}
+            </Card>
+          </div>
+        </div>
+
+        {/* Hits Table */}
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle>Hits ({filteredHitsTotal.toLocaleString()})</CardTitle>
+            </div>
+            {/* Hit Filters */}
+            <HitFilters
+              minMultiplier={minMultiplier}
+              selectedTargets={selectedTargets}
+              availableTargets={run.targets}
+              onMinMultiplierChange={(value) => {
+                setMinMultiplier(value);
+                setHitsPage(0);
+              }}
+              onResetFilters={handleResetFilters}
+            />
+          </CardHeader>
+
+          <CardContent className="p-0">
+            {hitsLoading ? (
+              <div className="flex justify-center items-center h-32">
+                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
               </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      {/* Hits Table */}
-      <div
-        className="rounded-lg border"
-        style={{
-          backgroundColor: "var(--color-surface)",
-          borderColor: "var(--color-border)",
-        }}
-      >
-        {/* Hit Filters */}
-        <HitFilters
-          minMultiplier={minMultiplier}
-          selectedTargets={selectedTargets}
-          availableTargets={run.targets}
-          onMinMultiplierChange={(value) => {
-            setMinMultiplier(value);
-            setHitsPage(0);
-          }}
-          onResetFilters={handleResetFilters}
-        />
-
-        <div
-          className="p-6 border-b"
-          style={{ borderColor: "var(--color-border)" }}
-        >
-          <h3 className="text-base font-semibold">
-            Hits ({filteredHitsTotal.toLocaleString()})
-          </h3>
-        </div>
-
-        {hitsLoading ? (
-          <div className="flex justify-center items-center h-32">
-            <div
-              className="animate-spin rounded-full h-6 w-6 border-b-2"
-              style={{ borderColor: "var(--color-primary-500)" }}
-            ></div>
-          </div>
-        ) : (
-          <>
-            <div className="overflow-x-auto">
-              <table className="min-w-full">
-                <thead
-                  style={{
-                    backgroundColor: "var(--color-background)",
-                    color: "var(--color-text-secondary)",
-                  }}
-                >
-                  <tr>
-                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider">
-                      Nonce
-                    </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider">
-                      Max Multiplier
-                    </th>
-                  </tr>
-                </thead>
-                <tbody
-                  className="divide-y"
-                  style={{ borderColor: "var(--color-border)" }}
-                >
-                  {paginatedFilteredHits.map((hit) => (
-                    <tr
-                      key={hit.nonce}
-                      className="hover:bg-gray-50/5 transition-colors"
-                    >
-                      <td className="px-6 py-3 whitespace-nowrap text-sm font-mono">
-                        {hit.nonce.toLocaleString()}
-                      </td>
-                      <td className="px-6 py-3 whitespace-nowrap text-sm font-semibold">
-                        <span
-                          className="inline-flex items-center rounded px-2 py-1 text-xs font-medium"
-                          style={{
-                            backgroundColor:
-                              hit.max_multiplier >= 10
-                                ? "var(--color-primary-600)/10"
-                                : "var(--color-background)",
-                            color:
-                              hit.max_multiplier >= 10
-                                ? "var(--color-primary-500)"
-                                : "var(--color-text-secondary)",
-                            border: `1px solid ${
-                              hit.max_multiplier >= 10
-                                ? "var(--color-primary-500)/20"
-                                : "var(--color-border)"
-                            }`,
-                          }}
-                        >
-                          {hit.max_multiplier.toFixed(2)}x
+            ) : (
+              <>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Nonce</TableHead>
+                      <TableHead>Max Multiplier</TableHead>
+                      <TableHead>
+                        <span title="Distance since previous same-multiplier hit in this run's range.">
+                          Distance
                         </span>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                      </TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {paginatedFilteredHits.map((hit) => (
+                      <TableRow key={hit.nonce}>
+                        <TableCell className="font-mono">
+                          {hit.nonce.toLocaleString()}
+                        </TableCell>
+                        <TableCell>
+                          <Badge
+                            variant={
+                              hit.max_multiplier >= 10 ? "default" : "outline"
+                            }
+                            className="font-semibold"
+                          >
+                            {hit.max_multiplier.toFixed(2)}x
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {hit.distance_prev == null
+                            ? "—"
+                            : formatInteger(hit.distance_prev)}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
 
-            {/* Hits Pagination */}
-            {filteredHitsTotalPages > 1 && (
-              <div
-                className="px-4 py-3 flex items-center justify-between border-t sm:px-6"
-                style={{ borderColor: "var(--color-border)" }}
-              >
-                <div className="flex-1 flex justify-between sm:hidden">
-                  <button
-                    onClick={() => setHitsPage(validHitsPage - 1)}
-                    disabled={validHitsPage === 0}
-                    className="relative inline-flex items-center px-4 py-2 border text-sm font-medium rounded-md disabled:opacity-50"
-                  >
-                    Previous
-                  </button>
-                  <button
-                    onClick={() => setHitsPage(validHitsPage + 1)}
-                    disabled={validHitsPage >= filteredHitsTotalPages - 1}
-                    className="ml-3 relative inline-flex items-center px-4 py-2 border text-sm font-medium rounded-md disabled:opacity-50"
-                  >
-                    Next
-                  </button>
-                </div>
-                <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-                  <div>
-                    <p
-                      className="text-sm"
-                      style={{ color: "var(--color-text-secondary)" }}
-                    >
-                      Showing{" "}
-                      <span className="font-medium">
-                        {validHitsPage * hitsLimit + 1}
-                      </span>{" "}
-                      to{" "}
-                      <span className="font-medium">
-                        {Math.min(
-                          (validHitsPage + 1) * hitsLimit,
-                          filteredHitsTotal
-                        )}
-                      </span>{" "}
-                      of{" "}
-                      <span className="font-medium">{filteredHitsTotal}</span>{" "}
-                      hits
-                    </p>
-                  </div>
-                  <div>
-                    <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px">
-                      <button
+                {/* Pagination */}
+                {filteredHitsTotalPages > 1 && (
+                  <div className="flex items-center justify-between px-6 py-4 border-t">
+                    <div className="flex-1 flex justify-between sm:hidden">
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => setHitsPage(validHitsPage - 1)}
                         disabled={validHitsPage === 0}
-                        className="relative inline-flex items-center px-2 py-2 rounded-l-md border text-sm font-medium hover:bg-gray-50/5 disabled:opacity-50"
-                        style={{ borderColor: "var(--color-border)" }}
                       >
-                        <ChevronLeftIcon className="h-5 w-5" />
-                      </button>
-                      {Array.from(
-                        { length: Math.min(filteredHitsTotalPages, 5) },
-                        (_, i) => {
-                          const pageNum =
-                            validHitsPage < 3 ? i : validHitsPage - 2 + i;
-                          if (pageNum >= filteredHitsTotalPages) return null;
-                          return (
-                            <button
-                              key={pageNum}
-                              onClick={() => setHitsPage(pageNum)}
-                              className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
-                                pageNum === validHitsPage
-                                  ? "z-10"
-                                  : "hover:bg-gray-50/5"
-                              }`}
-                              style={{
-                                borderColor: "var(--color-border)",
-                                backgroundColor:
-                                  pageNum === validHitsPage
-                                    ? "var(--color-primary-600)"
-                                    : "transparent",
-                                color:
-                                  pageNum === validHitsPage
-                                    ? "white"
-                                    : "var(--color-text-secondary)",
-                              }}
-                            >
-                              {pageNum + 1}
-                            </button>
-                          );
-                        }
-                      )}
-                      <button
+                        Previous
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
                         onClick={() => setHitsPage(validHitsPage + 1)}
                         disabled={validHitsPage >= filteredHitsTotalPages - 1}
-                        className="relative inline-flex items-center px-2 py-2 rounded-r-md border text-sm font-medium hover:bg-gray-50/5 disabled:opacity-50"
-                        style={{ borderColor: "var(--color-border)" }}
                       >
-                        <ChevronRightIcon className="h-5 w-5" />
-                      </button>
-                    </nav>
+                        Next
+                      </Button>
+                    </div>
+                    <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-sm text-muted-foreground">
+                          Showing{" "}
+                          <span className="font-medium">
+                            {validHitsPage * hitsLimit + 1}
+                          </span>{" "}
+                          to{" "}
+                          <span className="font-medium">
+                            {Math.min(
+                              (validHitsPage + 1) * hitsLimit,
+                              filteredHitsTotal
+                            )}
+                          </span>{" "}
+                          of{" "}
+                          <span className="font-medium">
+                            {filteredHitsTotal}
+                          </span>{" "}
+                          hits
+                        </p>
+                      </div>
+                      <div className="flex items-center space-x-1">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setHitsPage(validHitsPage - 1)}
+                          disabled={validHitsPage === 0}
+                        >
+                          <ChevronLeftIcon className="h-4 w-4" />
+                        </Button>
+                        {Array.from(
+                          { length: Math.min(filteredHitsTotalPages, 5) },
+                          (_, i) => {
+                            const pageNum =
+                              validHitsPage < 3 ? i : validHitsPage - 2 + i;
+                            if (pageNum >= filteredHitsTotalPages) return null;
+                            return (
+                              <Button
+                                key={pageNum}
+                                variant={
+                                  pageNum === validHitsPage
+                                    ? "default"
+                                    : "outline"
+                                }
+                                size="sm"
+                                onClick={() => setHitsPage(pageNum)}
+                              >
+                                {pageNum + 1}
+                              </Button>
+                            );
+                          }
+                        )}
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setHitsPage(validHitsPage + 1)}
+                          disabled={validHitsPage >= filteredHitsTotalPages - 1}
+                        >
+                          <ChevronRightIcon className="h-4 w-4" />
+                        </Button>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              </div>
-            )}
+                )}
 
-            {paginatedFilteredHits.length === 0 && !hitsLoading && (
-              <div className="text-center py-12">
-                <div style={{ color: "var(--color-text-secondary)" }}>
-                  {minMultiplier || selectedTargets.length > 0
-                    ? `No hits found with the current filters.`
-                    : "No hits found."}
-                </div>
-              </div>
+                {paginatedFilteredHits.length === 0 && !hitsLoading && (
+                  <div className="text-center py-12">
+                    <div className="text-muted-foreground">
+                      {minMultiplier || selectedTargets.length > 0
+                        ? `No hits found with the current filters.`
+                        : "No hits found."}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
-          </>
-        )}
+          </CardContent>
+        </Card>
       </div>
     </div>
   );

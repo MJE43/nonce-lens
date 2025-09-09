@@ -8,14 +8,21 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from fastapi.responses import JSONResponse, StreamingResponse
-from sqlalchemy import func, insert
+from sqlalchemy import func, insert, text
 from sqlmodel import select
 
 from ..core.config import get_settings
 from ..db import get_session
 from ..engine.pump import ENGINE_VERSION, scan_pump, verify_pump
 from ..models.runs import Hit, Run
-from ..schemas.runs import HitRow, HitsPage, RunCreate, RunDetail, RunRead
+from ..schemas.runs import (
+    HitRow,
+    HitsPage,
+    RunCreate,
+    RunDetail,
+    RunRead,
+    DistanceStatsPayload,
+)
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
@@ -173,7 +180,7 @@ async def list_runs(
         count_query = count_query.where(Run.client_seed.contains(search))
     if difficulty:
         count_query = count_query.where(Run.difficulty == difficulty)
-    
+
     total_result = await session.execute(count_query)
     total = int(total_result.scalar())
 
@@ -200,7 +207,7 @@ async def list_runs(
                 counts_by_target=summary.get("counts_by_target", {}),
             )
         )
-    
+
     return RunListResponse(runs=runs, total=total)
 
 
@@ -234,6 +241,11 @@ async def get_hits(
     min_multiplier: Optional[float] = Query(None),
     limit: int = Query(100, ge=1, le=10_000),
     offset: int = Query(0, ge=0),
+    include_distance: Optional[str] = Query(
+        None,
+        description="Set to 'per_multiplier' to include distance_prev per multiplier",
+    ),
+    tol: float = Query(1e-9, ge=0.0),
 ):
     # Ensure run exists
     r = (await session.execute(select(Run.id).where(Run.id == run_id))).scalars().first()
@@ -244,17 +256,191 @@ async def get_hits(
     if min_multiplier is not None:
         where.append(Hit.max_multiplier >= float(min_multiplier))
 
+    # Count total for pagination
     total_q = select(func.count()).select_from(Hit).where(*where)
     total_res = await session.execute(total_q)
     total = int(total_res.scalar())
 
-    rows_q = select(Hit).where(*where).order_by(Hit.nonce).offset(offset).limit(limit)
-    rows_res = await session.execute(rows_q)
-    rows = rows_res.scalars().all()
+    # If distance not requested, return regular rows
+    if include_distance != "per_multiplier":
+        rows_q = (
+            select(Hit).where(*where).order_by(Hit.nonce).offset(offset).limit(limit)
+        )
+        rows_res = await session.execute(rows_q)
+        rows = rows_res.scalars().all()
+        return HitsPage(
+            total=total,
+            rows=[HitRow(nonce=h.nonce, max_multiplier=h.max_multiplier) for h in rows],
+        )
 
-    return HitsPage(
-        total=total,
-        rows=[HitRow(nonce=h.nonce, max_multiplier=h.max_multiplier) for h in rows],
+    # Include per-multiplier distance_prev using SQLAlchemy window function
+    lag_prev = func.lag(Hit.nonce).over(
+        partition_by=Hit.max_multiplier, order_by=Hit.nonce
+    )
+    distance_prev = (Hit.nonce - lag_prev).label("distance_prev")
+
+    stmt = (
+        select(Hit.nonce, Hit.max_multiplier, distance_prev)
+        .where(*where)
+        .order_by(Hit.nonce)
+        .offset(offset)
+        .limit(limit)
+    )
+    res = await session.execute(stmt)
+    rows = res.all()
+
+    payload_rows: list[HitRow] = []
+    for nonce, max_multiplier, dp in rows:
+        payload_rows.append(
+            HitRow(
+                nonce=int(nonce),
+                max_multiplier=float(max_multiplier),
+                distance_prev=int(dp) if dp is not None else None,
+            )
+        )
+
+    return HitsPage(total=total, rows=payload_rows)
+
+
+@router.get("/{run_id}/distances", response_model=DistanceStatsPayload)
+async def get_distances(
+    run_id: UUID,
+    multiplier: float = Query(...),
+    tol: float = Query(1e-9, ge=0.0),
+    session: AsyncSession = Depends(get_session),
+):
+    # Ensure run exists
+    r = (
+        (await session.execute(select(Run.id).where(Run.id == run_id)))
+        .scalars()
+        .first()
+    )
+    if not r:
+        return _error_response("Run not found", 404, code="NOT_FOUND")
+
+    # Query all nonces for this multiplier within tolerance
+    low = float(multiplier) - float(tol)
+    high = float(multiplier) + float(tol)
+    nonce_stmt = (
+        select(Hit.nonce)
+        .where(
+            Hit.run_id == run_id,
+            Hit.max_multiplier >= low,
+            Hit.max_multiplier <= high,
+        )
+        .order_by(Hit.nonce)
+    )
+    res = await session.execute(nonce_stmt)
+    nonce_rows = [int(n) for n in res.scalars().all()]
+
+    count = len(nonce_rows)
+    if count < 2:
+        # With <2 occurrences, distances/stats are empty
+        return DistanceStatsPayload(
+            multiplier=float(multiplier),
+            tol=float(tol),
+            count=count,
+            nonces=nonce_rows,
+            distances=[],
+            stats={},
+        )
+
+    # Compute distances vector
+    distances: list[int] = [nonce_rows[i] - nonce_rows[i - 1] for i in range(1, count)]
+
+    # Compute stats
+    sorted_d = sorted(distances)
+    n = len(sorted_d)
+    mean_v = sum(sorted_d) / n
+    # median
+    if n % 2 == 0:
+        median_v = (sorted_d[n // 2 - 1] + sorted_d[n // 2]) / 2
+    else:
+        median_v = sorted_d[n // 2]
+    min_v = sorted_d[0]
+    max_v = sorted_d[-1]
+
+    # nearest-rank percentiles
+    def nearest_rank(p: float) -> int:
+        if n == 0:
+            return 0
+        k = max(1, int(math.ceil(p * n / 100)))
+        return sorted_d[k - 1]
+
+    p90_v = nearest_rank(90)
+    p99_v = nearest_rank(99)
+    # population stddev
+    variance = sum((d - mean_v) ** 2 for d in sorted_d) / n
+    stddev_v = math.sqrt(variance)
+    cv_v = (stddev_v / mean_v) if mean_v > 0 else 0.0
+
+    stats = {
+        "mean": round(mean_v, 10),
+        "median": median_v,
+        "min": min_v,
+        "max": max_v,
+        "p90": p90_v,
+        "p99": p99_v,
+        "stddev": round(stddev_v, 10),
+        "cv": round(cv_v, 10),
+    }
+
+    return DistanceStatsPayload(
+        multiplier=float(multiplier),
+        tol=float(tol),
+        count=count,
+        nonces=nonce_rows,
+        distances=distances,
+        stats=stats,
+    )
+
+
+@router.get("/{run_id}/distances.csv")
+async def export_distances_csv(
+    run_id: UUID,
+    multiplier: float = Query(...),
+    tol: float = Query(1e-9, ge=0.0),
+    session: AsyncSession = Depends(get_session),
+):
+    # Ensure run exists
+    r = (
+        (await session.execute(select(Run.id).where(Run.id == run_id)))
+        .scalars()
+        .first()
+    )
+    if not r:
+        return _error_response("Run not found", 404, code="NOT_FOUND")
+
+    # Fetch ordered nonces
+    low = float(multiplier) - float(tol)
+    high = float(multiplier) + float(tol)
+    nonce_stmt = (
+        select(Hit.nonce)
+        .where(
+            Hit.run_id == run_id,
+            Hit.max_multiplier >= low,
+            Hit.max_multiplier <= high,
+        )
+        .order_by(Hit.nonce)
+    )
+    res = await session.execute(nonce_stmt)
+    nonces = [int(n) for n in res.scalars().all()]
+
+    async def streamer() -> Iterable[str]:
+        yield "from_nonce,distance\n"
+        if len(nonces) < 2:
+            return
+        prev = nonces[0]
+        for current in nonces[1:]:
+            yield f"{prev},{current - prev}\n"
+            prev = current
+
+    return StreamingResponse(
+        streamer(),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": "attachment; filename=distances.csv",
+        },
     )
 
 

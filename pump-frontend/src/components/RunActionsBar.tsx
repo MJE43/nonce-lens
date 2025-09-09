@@ -5,6 +5,7 @@ import {
   ArrowDownTrayIcon,
   DocumentDuplicateIcon,
   MagnifyingGlassIcon,
+  ClipboardDocumentIcon,
 } from "@heroicons/react/24/outline";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -82,6 +83,17 @@ export const RunActionsBar: React.FC<RunActionsBarProps> = ({
     onMinMultiplierChange(numValue);
   };
 
+  const copyToClipboard = (text: string, label: string) => {
+    navigator.clipboard
+      .writeText(text)
+      .then(() => {
+        toast.success(`${label} copied to clipboard`);
+      })
+      .catch(() => {
+        toast.error("Failed to copy to clipboard");
+      });
+  };
+
   return (
     <div className="sticky top-0 z-40 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
       <div className="container flex h-16 max-w-screen-2xl items-center justify-between px-4">
@@ -95,6 +107,28 @@ export const RunActionsBar: React.FC<RunActionsBarProps> = ({
           >
             <DocumentDuplicateIcon className="h-4 w-4" />
             Duplicate
+          </Button>
+
+          <Separator orientation="vertical" className="h-6" />
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => copyToClipboard(run.server_seed, "Server seed")}
+            className="gap-2"
+          >
+            <ClipboardDocumentIcon className="h-4 w-4" />
+            Copy Server
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => copyToClipboard(run.client_seed, "Client seed")}
+            className="gap-2"
+          >
+            <ClipboardDocumentIcon className="h-4 w-4" />
+            Copy Client
           </Button>
 
           <Separator orientation="vertical" className="h-6" />
