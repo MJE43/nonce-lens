@@ -33,6 +33,15 @@ import {
 import { createColumns } from "./live-streams/columns";
 import { useVirtualizer } from "@tanstack/react-virtual";
 
+/**
+ * UI-only table for displaying live bet records with proper virtualization.
+ * - No server data fetching; expects fully prepared `bets` from caller (react-query cache).
+ * - Uses TanStack Table for sorting/filtering UI state and TanStack Virtual for performance.
+ * - Implements container-based virtualization following tutorial patterns.
+ * - Optional client-side distance calculation (when showDistanceColumn is true).
+ * - Automatically updates when new bets arrive via React Query cache invalidation.
+ */
+
 // Helper: shallow compare BetFilters to avoid unnecessary state updates
 // function arraysEqual(a?: number[], b?: number[]) {
 //   if (a === b) return true;
@@ -205,7 +214,11 @@ function LiveBetTable({
     count: rows.length,
     getScrollElement: () => tableRef.current,
     estimateSize: () => 48, // Estimate row height
+    overscan: 10, // Render extra items outside viewport for smoother scrolling
   });
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  const visibleRows = virtualRows.map((virtualRow) => rows[virtualRow.index]).filter(Boolean);
 
   // Handle filter reset
   const handleResetFilters = useCallback(() => {
@@ -417,42 +430,95 @@ function LiveBetTable({
         </Button>
       </div>
 
-      {/* Table */}
-      <div
-        ref={tableRef}
-        className={cn(
-          "border rounded-lg overflow-auto",
-          showVirtualScrolling && "max-h-[600px]"
-        )}
-        style={showVirtualScrolling ? { maxHeight } : undefined}
-      >
-        <Table>
-          <TableHeader className="sticky top-0 bg-background z-10">
-            {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext()
-                        )}
-                  </TableHead>
-                ))}
-              </TableRow>
-            ))}
-          </TableHeader>
-          <TableBody
+      {/* Table with conditional virtualization */}
+      {showVirtualScrolling ? (
+        <div
+          ref={tableRef}
+          className="border rounded-lg overflow-auto relative h-[600px]"
+          style={{ height: maxHeight }}
+        >
+          <div
             style={{
               height: `${rowVirtualizer.getTotalSize()}px`,
               position: "relative",
             }}
           >
-            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-              const row = rows[virtualRow.index];
-              if (!row) return null;
-              return (
+            <div
+              style={{
+                position: "absolute",
+                top: 0,
+                left: 0,
+                width: "100%",
+                transform: `translateY(${virtualRows[0]?.start ?? 0}px)`,
+              }}
+            >
+              <Table>
+                <TableHeader className="sticky top-0 bg-background z-10">
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <TableRow key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => (
+                        <TableHead key={header.id}>
+                          {header.isPlaceholder
+                            ? null
+                            : flexRender(
+                                header.column.columnDef.header,
+                                header.getContext()
+                              )}
+                        </TableHead>
+                      ))}
+                    </TableRow>
+                  ))}
+                </TableHeader>
+                <TableBody>
+                  {visibleRows.map((row) => {
+                    if (!row) return null;
+                    return (
+                      <TableRow
+                        key={row.id}
+                        data-state={row.getIsSelected() && "selected"}
+                        className={cn(
+                          "cursor-pointer transition-all duration-200",
+                          onBetClick && "hover:bg-accent/50"
+                        )}
+                        onClick={() => onBetClick?.(row.original)}
+                      >
+                        {row.getVisibleCells().map((cell) => (
+                          <TableCell key={cell.id}>
+                            {flexRender(
+                              cell.column.columnDef.cell,
+                              cell.getContext()
+                            )}
+                          </TableCell>
+                        ))}
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          </div>
+        </div>
+      ) : (
+        <div className="border rounded-lg overflow-auto">
+          <Table>
+            <TableHeader>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <TableRow key={headerGroup.id}>
+                  {headerGroup.headers.map((header) => (
+                    <TableHead key={header.id}>
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                    </TableHead>
+                  ))}
+                </TableRow>
+              ))}
+            </TableHeader>
+            <TableBody>
+              {rows.map((row) => (
                 <TableRow
                   key={row.id}
                   data-state={row.getIsSelected() && "selected"}
@@ -461,14 +527,6 @@ function LiveBetTable({
                     onBetClick && "hover:bg-accent/50"
                   )}
                   onClick={() => onBetClick?.(row.original)}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    left: 0,
-                    width: "100%",
-                    height: `${virtualRow.size}px`,
-                    transform: `translateY(${virtualRow.start}px)`,
-                  }}
                 >
                   {row.getVisibleCells().map((cell) => (
                     <TableCell key={cell.id}>
@@ -479,20 +537,12 @@ function LiveBetTable({
                     </TableCell>
                   ))}
                 </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      )}
 
-      {/* Virtual scrolling spacer */}
-      {/* {showVirtualScrolling && bets.length > visibleBets.length && (
-        <div
-          style={{
-            height: `${(bets.length - visibleBets.length) * 48}px`,
-          }}
-        />
-      )} */}
     </div>
   );
 }

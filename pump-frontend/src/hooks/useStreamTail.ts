@@ -25,9 +25,9 @@ export interface UseStreamTailResult {
 }
 
 /**
- * Hook for incremental bet updates using since_id parameter
- * Polls every 1-2 seconds with automatic error recovery
- * Includes optimistic UI updates and conflict resolution
+ * @deprecated Prefer useStreamTailUpdater which polls using react-query and merges into cache.
+ * Hook for incremental bet updates using since_id parameter.
+ * This legacy function relies on manual intervals and local state.
  */
 export function useStreamTail(
   options: UseStreamTailOptions
@@ -190,8 +190,9 @@ export function useStreamTail(
 }
 
 /**
- * Hook for managing real-time bet updates with optimistic UI
- * Combines tail polling with existing bet data for seamless updates
+ * @deprecated Use useStreamBetsQuery for initial data and useStreamTailUpdater for polling/merging.
+ * Hook for managing real-time bet updates with optimistic UI.
+ * This legacy hook merges local state and should be avoided in favor of react-query cache-centric flow.
  */
 export function useRealTimeBets(
   streamId: string,

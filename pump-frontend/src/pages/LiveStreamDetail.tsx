@@ -1,13 +1,11 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import {
   useEnhancedStreamDetail,
-  useEnhancedStreamBets,
   useEnhancedDeleteStream,
   useEnhancedUpdateStream,
 } from "@/hooks/useEnhancedLiveStreams";
-import { useRealTimeBets } from "@/hooks/useStreamTail";
-import type { BetRecord } from "@/lib/api";
+import { useStreamBetsQuery } from "@/hooks/useStreamBetsQuery";
 import { useAnalyticsState } from "@/hooks/useAnalyticsState";
 import { liveStreamsApi } from "../lib/api";
 import Breadcrumb from "../components/Breadcrumb";
@@ -37,7 +35,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 // import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -68,30 +65,30 @@ const LiveStreamDetail = () => {
   const [isPolling, setIsPolling] = useState(true);
   const [highFrequencyMode, setHighFrequencyMode] = useState(true); // Default to high frequency for betting
 
-  // Fetch initial bets data - use larger limit for better filtering
-  const { data: initialBetsData, isLoading: betsLoading } =
-    useEnhancedStreamBets(id!, {
-      order: "id_desc",
-      limit: 1000, // Backend max is 1000
-    });
+  // Shared, memoized filters to stabilize query keys
+  const betsFilters = useMemo(
+    () => ({ order: "id_desc" as const, limit: 1000 as const }),
+    []
+  );
+
+  // Fetch bets with real-time streaming
+  const betsQuery = useStreamBetsQuery({
+    streamId: id!,
+    filters: betsFilters,
+    enabled: isPolling,
+    pollingInterval: highFrequencyMode ? 500 : 2000,
+  });
+  const betsLoading = betsQuery.isLoading;
 
   // Analytics state hook for processing incoming bets
   const { updateFromTail } = useAnalyticsState(id!);
 
-  // Hooks - pass initial bets to establish proper lastId
-  // Use stable empty array to avoid infinite re-renders from new [] reference
-  const EMPTY_BETS: BetRecord[] = [];
-  const realTimeBets = useRealTimeBets(
-    id!,
-    initialBetsData?.bets ?? EMPTY_BETS
-  );
-
-  // Update analytics when new bets arrive
+  // Update analytics when bets change
   useEffect(() => {
-    if (realTimeBets.newBets.length > 0) {
-      updateFromTail(realTimeBets.newBets);
+    if (betsQuery.bets.length > 0) {
+      updateFromTail(betsQuery.bets);
     }
-  }, [realTimeBets.newBets, updateFromTail]);
+  }, [betsQuery.bets, updateFromTail]);
 
   const {
     data: streamDetail,
@@ -256,6 +253,8 @@ const LiveStreamDetail = () => {
     );
   }
 
+  const bets = betsQuery.bets;
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative overflow-hidden">
       <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.1),transparent_70%)]" />
@@ -279,7 +278,7 @@ const LiveStreamDetail = () => {
         <OfflineIndicator
           onRetry={() => {
             refetchStream();
-            // Note: Bets are handled by useRealTimeBets hook
+            betsQuery.refetch();
           }}
         />
 
@@ -507,14 +506,6 @@ const LiveStreamDetail = () => {
                 <span className="text-sm">
                   Updates every {highFrequencyMode ? "0.5" : "2"} seconds
                 </span>
-                {realTimeBets.newBetsCount > 0 && (
-                  <Badge
-                    variant="outline"
-                    className="border-green-500 text-green-400"
-                  >
-                    +{realTimeBets.newBetsCount} new
-                  </Badge>
-                )}
               </div>
             </div>
             <CardDescription className="text-slate-400">
@@ -522,28 +513,29 @@ const LiveStreamDetail = () => {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {(realTimeBets.bets.length === 0 && realTimeBets.isPolling) ||
-            betsLoading ? (
+            {(bets.length === 0 && isPolling) || betsLoading ? (
               <div className="space-y-3">
                 {[...Array(5)].map((_, i) => (
                   <Skeleton key={i} className="h-12 w-full bg-slate-700" />
                 ))}
               </div>
-            ) : realTimeBets.bets.length === 0 ? (
+            ) : bets.length === 0 ? (
               <div className="text-center py-12">
                 <Activity className="w-16 h-16 text-slate-600 mx-auto mb-4" />
                 <p className="text-slate-400 text-lg mb-2">No bets found</p>
                 <p className="text-slate-500 text-sm">
-                  {realTimeBets.isRealTimeActive
+                  {isPolling
                     ? "Waiting for new bets..."
                     : "Bets will appear here as they are received"}
                 </p>
               </div>
             ) : (
               <LiveBetTable
-                bets={realTimeBets.bets}
+                key={`bets-${bets.length}-${bets[0]?.id || "empty"}`}
+                bets={bets}
                 isLoading={betsLoading}
                 showDistanceColumn={true}
+                showVirtualScrolling={bets.length > 100}
               />
             )}
           </CardContent>
