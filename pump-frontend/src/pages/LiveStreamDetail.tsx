@@ -18,13 +18,11 @@ import {
   Trash2,
   Edit3,
   Save,
-  X,
   Activity,
   Hash,
   Key,
   Clock,
   BarChart3,
-  Filter,
   RefreshCw,
 } from "lucide-react";
 
@@ -39,7 +37,6 @@ import {
 } from "@/components/ui/card";
 // import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -53,13 +50,6 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 
 import { Skeleton } from "@/components/ui/skeleton";
 // import { formatDistance } from "date-fns";
@@ -73,19 +63,15 @@ const LiveStreamDetail = () => {
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notesValue, setNotesValue] = useState("");
 
-  // State for bet filtering
-  const [minMultiplier, setMinMultiplier] = useState<number | undefined>();
-  const [orderBy, setOrderBy] = useState<"nonce_asc" | "id_desc">("id_desc");
-
   // State for UI controls only
   const [isPolling, setIsPolling] = useState(true);
   const [highFrequencyMode, setHighFrequencyMode] = useState(true); // Default to high frequency for betting
 
-  // Fetch initial bets data
+  // Fetch initial bets data - use larger limit for better filtering
   const { data: initialBetsData, isLoading: betsLoading } =
     useEnhancedStreamBets(id!, {
       order: "id_desc",
-      limit: 100, // Get recent bets to establish lastId
+      limit: 10000, // Get many more bets for proper filtering
     });
 
   // Analytics state hook for processing incoming bets
@@ -169,33 +155,6 @@ const LiveStreamDetail = () => {
   };
 
   // Difficulty color handled inside LiveBetTable
-
-  // Filter bets based on minMultiplier (using round_result instead of payout_multiplier)
-  const filteredBets = minMultiplier
-    ? realTimeBets.bets.filter((bet) => {
-        const multiplier = bet.round_result;
-        return multiplier != null && multiplier >= minMultiplier;
-      })
-    : realTimeBets.bets;
-
-  // Sort bets based on orderBy
-  const sortedBets = [...filteredBets].sort((a, b) => {
-    if (orderBy === "nonce_asc") {
-      return a.nonce - b.nonce;
-    } else {
-      return b.id - a.id;
-    }
-  });
-
-  // Debug logging (remove in production)
-  if (process.env.NODE_ENV === "development" && realTimeBets.bets.length > 0) {
-    console.log("LiveStreamDetail:", {
-      totalBets: realTimeBets.bets.length,
-      filteredBets: filteredBets.length,
-      sortedBets: sortedBets.length,
-      minMultiplier,
-    });
-  }
 
   // Route parameter validation
   if (!id) {
@@ -455,7 +414,7 @@ const LiveStreamDetail = () => {
                         setNotesValue(streamDetail.notes || "");
                       }}
                     >
-                      <X className="w-4 h-4 mr-2" />
+                      <ArrowLeft className="w-4 h-4 mr-2" />
                       Cancel
                     </Button>
                   </div>
@@ -529,87 +488,6 @@ const LiveStreamDetail = () => {
           </CardContent>
         </Card>
 
-        {/* Bet Filters and Controls */}
-        <Card className="bg-slate-800/50 backdrop-blur-xl border-slate-700/50 shadow-2xl">
-          <CardHeader>
-            <CardTitle className="text-white flex items-center gap-2">
-              <Filter className="w-5 h-5 text-blue-400" />
-              Bet Filters
-            </CardTitle>
-          </CardHeader>
-          <CardContent>
-            <div className="flex flex-wrap gap-4 items-end">
-              <div className="space-y-2">
-                <Label className="text-slate-300">Minimum Multiplier</Label>
-                <Input
-                  type="number"
-                  placeholder="e.g. 100"
-                  value={minMultiplier || ""}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    if (value === "") {
-                      setMinMultiplier(undefined);
-                    } else {
-                      const parsed = parseFloat(value);
-                      setMinMultiplier(isNaN(parsed) ? undefined : parsed);
-                    }
-                  }}
-                  className={`w-32 ${
-                    minMultiplier
-                      ? "bg-blue-900/30 border-blue-500 text-blue-300"
-                      : "bg-slate-900/50 border-slate-700 text-slate-300"
-                  }`}
-                  min="0"
-                  step="0.01"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label className="text-slate-300">Order By</Label>
-                <Select
-                  value={orderBy}
-                  onValueChange={(value: "nonce_asc" | "id_desc") =>
-                    setOrderBy(value)
-                  }
-                >
-                  <SelectTrigger className="bg-slate-900/50 border-slate-700 text-slate-300 w-40">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent className="bg-slate-800 border-slate-700">
-                    <SelectItem value="nonce_asc" className="text-slate-300">
-                      Nonce (Asc)
-                    </SelectItem>
-                    <SelectItem value="id_desc" className="text-slate-300">
-                      Latest First
-                    </SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <Button
-                variant="outline"
-                onClick={() => {
-                  setMinMultiplier(undefined);
-                  setOrderBy("id_desc");
-                }}
-                className="flex items-center gap-2"
-                disabled={!minMultiplier}
-              >
-                <X className="w-4 h-4" />
-                Clear Filters
-                {minMultiplier && (
-                  <Badge variant="secondary" className="ml-1 h-4 px-1 text-xs">
-                    1
-                  </Badge>
-                )}
-              </Button>
-            </div>
-            <div className="mt-4 text-sm text-slate-400">
-              Showing {sortedBets.length.toLocaleString()} of{" "}
-              {realTimeBets.bets.length.toLocaleString()} bets
-              {minMultiplier && ` (≥${minMultiplier}x multiplier)`}
-            </div>
-          </CardContent>
-        </Card>
-
         {/* Bets Table */}
         <Card className="bg-slate-800/50 backdrop-blur-xl border-slate-700/50 shadow-2xl">
           <CardHeader>
@@ -650,9 +528,7 @@ const LiveStreamDetail = () => {
                 <Activity className="w-16 h-16 text-slate-600 mx-auto mb-4" />
                 <p className="text-slate-400 text-lg mb-2">No bets found</p>
                 <p className="text-slate-500 text-sm">
-                  {minMultiplier
-                    ? `No bets found with multiplier ≥${minMultiplier}x`
-                    : realTimeBets.isRealTimeActive
+                  {realTimeBets.isRealTimeActive
                     ? "Waiting for new bets..."
                     : "Bets will appear here as they are received"}
                 </p>
@@ -661,21 +537,6 @@ const LiveStreamDetail = () => {
               <LiveBetTable
                 bets={realTimeBets.bets}
                 isLoading={betsLoading}
-                filters={{ minMultiplier: minMultiplier }}
-                onFilter={(f) => {
-                  if (typeof f.minMultiplier !== "undefined") {
-                    setMinMultiplier(f.minMultiplier);
-                  }
-                }}
-                sortField={orderBy === "nonce_asc" ? "nonce" : "id"}
-                sortDirection={orderBy === "nonce_asc" ? "asc" : "desc"}
-                onSort={(field, direction) => {
-                  if (field === "nonce" && direction === "asc") {
-                    setOrderBy("nonce_asc");
-                  } else {
-                    setOrderBy("id_desc");
-                  }
-                }}
                 showDistanceColumn={true}
               />
             )}

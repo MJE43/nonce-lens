@@ -216,7 +216,7 @@ export function useRealTimeBets(
 
       if (uniqueNewBets.length > 0) {
         setAllBets((prev) =>
-          [...prev, ...uniqueNewBets].sort((a, b) => a.nonce - b.nonce)
+          [...prev, ...uniqueNewBets].sort((a, b) => b.nonce - a.nonce)
         );
         setNewlyFetchedBets(uniqueNewBets);
       } else {

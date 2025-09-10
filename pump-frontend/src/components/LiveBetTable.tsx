@@ -34,9 +34,33 @@ import {
   Star,
   StarOff,
   BarChart3,
+  RotateCcw,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { BetRecord } from "@/lib/api";
+
+// Helper: shallow compare BetFilters to avoid unnecessary state updates
+function arraysEqual(a?: number[], b?: number[]) {
+  if (a === b) return true;
+  if (!a && !b) return true;
+  if (!a || !b) return false;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+function filtersShallowEqual(a: BetFilters, b: BetFilters) {
+  return (
+    a.minMultiplier === b.minMultiplier &&
+    a.difficulty === b.difficulty &&
+    a.minAmount === b.minAmount &&
+    a.maxAmount === b.maxAmount &&
+    a.showOnlyPinned === b.showOnlyPinned &&
+    arraysEqual(a.pinnedMultipliers, b.pinnedMultipliers)
+  );
+}
 
 interface LiveBetTableProps {
   bets: BetRecord[];
@@ -108,7 +132,7 @@ function LiveBetTable({
   onSort,
   onFilter,
   sortField = "nonce",
-  sortDirection = "asc",
+  sortDirection = "desc",
   filters = {},
   showVirtualScrolling = false,
   maxHeight = "600px",
@@ -277,17 +301,27 @@ function LiveBetTable({
     }
   };
 
-  // Handle filter changes
+  // Handle filter changes (stable, functional updates to avoid loops)
   const handleFilterChange = useCallback(
     (newFilters: Partial<BetFilters>) => {
-      const updatedFilters = { ...localFilters, ...newFilters };
-      setLocalFilters(updatedFilters);
+      setLocalFilters((prev) => {
+        const merged: BetFilters = { ...prev, ...newFilters };
 
-      if (onFilter) {
-        onFilter(updatedFilters);
-      }
+        // Clean undefined values to truly remove filters
+        (Object.keys(merged) as (keyof BetFilters)[]).forEach((k) => {
+          if ((merged as any)[k] === undefined) {
+            delete (merged as any)[k];
+          }
+        });
+
+        const changed = !filtersShallowEqual(prev, merged);
+        if (changed && onFilter) {
+          onFilter(merged);
+        }
+        return changed ? merged : prev;
+      });
     },
-    [localFilters, onFilter]
+    [onFilter]
   );
 
   // Handle bookmark functionality
@@ -304,24 +338,50 @@ function LiveBetTable({
     [onBookmark]
   );
 
+  // Handle filter reset
+  const handleResetFilters = useCallback(() => {
+    const resetFilters: BetFilters = {};
+    setLocalFilters((prev) => {
+      const changed = !filtersShallowEqual(prev, resetFilters);
+      if (changed && onFilter) {
+        onFilter(resetFilters);
+      }
+      return changed ? resetFilters : prev;
+    });
+    setFilterInputs({
+      minMultiplier: "",
+      minAmount: "",
+      maxAmount: "",
+    });
+  }, [onFilter]);
+
   // Apply filter inputs with debouncing
   useEffect(() => {
     const timer = setTimeout(() => {
       const newFilters: Partial<BetFilters> = {};
 
-      if (filterInputs.minMultiplier) {
+      // Handle min multiplier - clear filter if input is empty
+      if (filterInputs.minMultiplier.trim()) {
         const value = parseFloat(filterInputs.minMultiplier);
         if (!isNaN(value)) newFilters.minMultiplier = value;
+      } else {
+        newFilters.minMultiplier = undefined;
       }
 
-      if (filterInputs.minAmount) {
+      // Handle min amount - clear filter if input is empty
+      if (filterInputs.minAmount.trim()) {
         const value = parseFloat(filterInputs.minAmount);
         if (!isNaN(value)) newFilters.minAmount = value;
+      } else {
+        newFilters.minAmount = undefined;
       }
 
-      if (filterInputs.maxAmount) {
+      // Handle max amount - clear filter if input is empty
+      if (filterInputs.maxAmount.trim()) {
         const value = parseFloat(filterInputs.maxAmount);
         if (!isNaN(value)) newFilters.maxAmount = value;
+      } else {
+        newFilters.maxAmount = undefined;
       }
 
       handleFilterChange(newFilters);
@@ -472,35 +532,6 @@ function LiveBetTable({
           </Select>
         </div>
 
-        {/* Sort Order Selector */}
-        <div className="flex items-center gap-2">
-          <label className="text-sm text-muted-foreground">Sort by:</label>
-          <Select
-            value={`${sortField}_${sortDirection}`}
-            onValueChange={(value) => {
-              const [field, direction] = value.split("_") as [
-                SortField,
-                SortDirection
-              ];
-              if (onSort) {
-                onSort(field, direction);
-              }
-            }}
-          >
-            <SelectTrigger className="w-32 h-8">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="nonce_asc">Nonce (Asc)</SelectItem>
-              <SelectItem value="id_desc">Latest First</SelectItem>
-              <SelectItem value="round_result_desc">
-                Multiplier (High)
-              </SelectItem>
-              <SelectItem value="round_result_asc">Multiplier (Low)</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
-
         {/* Pinned Multipliers Filter */}
         {shouldShowPinnedFilter && (
           <div className="flex items-center gap-2">
@@ -555,6 +586,16 @@ function LiveBetTable({
         <div className="text-sm text-muted-foreground">
           {filteredBets.length} of {bets.length} bets
         </div>
+
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={handleResetFilters}
+          className="flex items-center gap-2"
+        >
+          <RotateCcw className="h-3 w-3" />
+          Reset Filters
+        </Button>
       </div>
 
       {/* Table */}
