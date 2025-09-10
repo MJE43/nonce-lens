@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import List, Optional
 from uuid import UUID
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 
 class IngestBetRequest(BaseModel):
@@ -22,7 +22,8 @@ class IngestBetRequest(BaseModel):
     clientSeed: str = Field(..., description="Client seed")
     serverSeedHashed: str = Field(..., description="Hashed server seed")
 
-    @validator('difficulty')
+    @field_validator('difficulty')
+    @classmethod
     def validate_difficulty(cls, v):
         """Validate difficulty is one of the allowed values."""
         allowed_difficulties = {'easy', 'medium', 'hard', 'expert'}

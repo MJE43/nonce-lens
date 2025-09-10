@@ -6,13 +6,14 @@ from uuid import UUID
 
 import csv
 import io
-from fastapi import APIRouter, Depends, HTTPException, Header, status
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError, SQLAlchemyError
 from sqlmodel import select, func
 
 from ..core.config import get_settings
+from ..core.rate_limiter import rate_limit_dependency
 from ..db import get_session
 from ..models.live_streams import LiveStream, LiveBet
 from ..schemas.live_streams import (
@@ -57,11 +58,18 @@ def verify_ingest_token(
         )
 
 
+def get_rate_limit_dependency():
+    """Get rate limit dependency with current settings."""
+    settings = get_settings()
+    return rate_limit_dependency(settings.ingest_rate_limit)
+
+
 @router.post("/ingest", response_model=IngestResponse)
 async def ingest_bet(
     bet_data: IngestBetRequest,
     session: AsyncSession = Depends(get_session),
-    _: None = Depends(verify_ingest_token)
+    _: None = Depends(verify_ingest_token),
+    __: None = Depends(get_rate_limit_dependency())
 ) -> IngestResponse:
     """
     Ingest bet data from Antebot with automatic stream management.
@@ -97,8 +105,8 @@ async def ingest_bet(
             LiveStream.server_seed_hashed == bet_data.serverSeedHashed,
             LiveStream.client_seed == bet_data.clientSeed
         )
-        result = await session.exec(stream_query)
-        stream = result.first()
+        result = await session.execute(stream_query)
+        stream = result.scalar_one_or_none()
         
         if stream is None:
             # Create new stream for this seed pair
@@ -116,8 +124,8 @@ async def ingest_bet(
             LiveBet.stream_id == stream.id,
             LiveBet.antebot_bet_id == bet_data.id
         )
-        duplicate_result = await session.exec(duplicate_query)
-        existing_bet = duplicate_result.first()
+        duplicate_result = await session.execute(duplicate_query)
+        existing_bet = duplicate_result.scalar_one_or_none()
         
         if existing_bet is not None:
             # Duplicate bet - return success with accepted=false
@@ -247,8 +255,8 @@ async def list_streams(
     try:
         # Get total count of streams
         count_query = select(func.count(LiveStream.id))
-        count_result = await session.exec(count_query)
-        total_streams = count_result.one()
+        count_result = await session.execute(count_query)
+        total_streams = count_result.scalar_one()
         
         # Get streams with aggregated metadata
         # Using subquery to get bet counts and highest multipliers
@@ -256,7 +264,7 @@ async def list_streams(
             select(
                 LiveStream,
                 func.count(LiveBet.id).label("total_bets"),
-                func.max(LiveBet.payout_multiplier).label("highest_multiplier")
+                func.max(LiveBet.round_result).label("highest_multiplier")
             )
             .outerjoin(LiveBet, LiveStream.id == LiveBet.stream_id)
             .group_by(LiveStream.id)
@@ -265,7 +273,7 @@ async def list_streams(
             .limit(limit)
         )
         
-        result = await session.exec(streams_query)
+        result = await session.execute(streams_query)
         stream_rows = result.all()
         
         # Convert to response format
@@ -316,8 +324,8 @@ async def get_stream_detail(
     try:
         # Get the stream
         stream_query = select(LiveStream).where(LiveStream.id == stream_id)
-        stream_result = await session.exec(stream_query)
-        stream = stream_result.first()
+        stream_result = await session.execute(stream_query)
+        stream = stream_result.scalar_one_or_none()
         
         if stream is None:
             raise HTTPException(
@@ -328,12 +336,12 @@ async def get_stream_detail(
         # Get aggregated statistics for this stream
         stats_query = select(
             func.count(LiveBet.id).label("total_bets"),
-            func.max(LiveBet.payout_multiplier).label("highest_multiplier"),
-            func.min(LiveBet.payout_multiplier).label("lowest_multiplier"),
-            func.avg(LiveBet.payout_multiplier).label("average_multiplier")
+            func.max(LiveBet.round_result).label("highest_multiplier"),
+            func.min(LiveBet.round_result).label("lowest_multiplier"),
+            func.avg(LiveBet.round_result).label("average_multiplier")
         ).where(LiveBet.stream_id == stream_id)
         
-        stats_result = await session.exec(stats_query)
+        stats_result = await session.execute(stats_query)
         stats = stats_result.first()
         
         total_bets = stats[0] or 0
@@ -349,8 +357,8 @@ async def get_stream_detail(
             .limit(10)
         )
         
-        recent_bets_result = await session.exec(recent_bets_query)
-        recent_bet_records = recent_bets_result.all()
+        recent_bets_result = await session.execute(recent_bets_query)
+        recent_bet_records = recent_bets_result.scalars().all()
         
         # Convert to BetRecord format
         recent_bets = []
@@ -441,8 +449,8 @@ async def list_stream_bets(
     try:
         # Verify stream exists
         stream_query = select(LiveStream).where(LiveStream.id == stream_id)
-        stream_result = await session.exec(stream_query)
-        stream = stream_result.first()
+        stream_result = await session.execute(stream_query)
+        stream = stream_result.scalar_one_or_none()
         
         if stream is None:
             raise HTTPException(
@@ -453,14 +461,14 @@ async def list_stream_bets(
         # Build base query with stream filter
         base_query = select(LiveBet).where(LiveBet.stream_id == stream_id)
         
-        # Add min_multiplier filter if provided
+        # Add min_multiplier filter if provided (using round_result instead of payout_multiplier)
         if min_multiplier is not None:
-            base_query = base_query.where(LiveBet.payout_multiplier >= min_multiplier)
+            base_query = base_query.where(LiveBet.round_result >= min_multiplier)
         
         # Get total count with filters applied
         count_query = select(func.count()).select_from(base_query.subquery())
-        count_result = await session.exec(count_query)
-        total_bets = count_result.one()
+        count_result = await session.execute(count_query)
+        total_bets = count_result.scalar_one()
         
         # Add ordering
         if order == "nonce_asc":
@@ -471,8 +479,8 @@ async def list_stream_bets(
         # Add pagination
         bets_query = base_query.offset(offset).limit(limit)
         
-        bets_result = await session.exec(bets_query)
-        bet_records = bets_result.all()
+        bets_result = await session.execute(bets_query)
+        bet_records = bets_result.scalars().all()
         
         # Convert to BetRecord format
         bets = []
@@ -535,8 +543,8 @@ async def tail_stream_bets(
     try:
         # Verify stream exists
         stream_query = select(LiveStream).where(LiveStream.id == stream_id)
-        stream_result = await session.exec(stream_query)
-        stream = stream_result.first()
+        stream_result = await session.execute(stream_query)
+        stream = stream_result.scalar_one_or_none()
         
         if stream is None:
             raise HTTPException(
@@ -554,8 +562,8 @@ async def tail_stream_bets(
             .order_by(LiveBet.id.asc())
         )
         
-        tail_result = await session.exec(tail_query)
-        new_bet_records = tail_result.all()
+        tail_result = await session.execute(tail_query)
+        new_bet_records = tail_result.scalars().all()
         
         # Convert to BetRecord format
         bets = []
@@ -618,8 +626,8 @@ async def delete_stream(
     try:
         # First, verify the stream exists and get bet count for response
         stream_query = select(LiveStream).where(LiveStream.id == stream_id)
-        stream_result = await session.exec(stream_query)
-        stream = stream_result.first()
+        stream_result = await session.execute(stream_query)
+        stream = stream_result.scalar_one_or_none()
         
         if stream is None:
             raise HTTPException(
@@ -629,8 +637,8 @@ async def delete_stream(
         
         # Count bets that will be deleted (for response information)
         bet_count_query = select(func.count(LiveBet.id)).where(LiveBet.stream_id == stream_id)
-        bet_count_result = await session.exec(bet_count_query)
-        bets_to_delete = bet_count_result.one()
+        bet_count_result = await session.execute(bet_count_query)
+        bets_to_delete = bet_count_result.scalar_one()
         
         # Delete the stream (cascade will handle bets due to foreign key constraint)
         await session.delete(stream)
@@ -684,8 +692,8 @@ async def update_stream(
     try:
         # Get the stream with a lock to handle concurrent updates
         stream_query = select(LiveStream).where(LiveStream.id == stream_id)
-        stream_result = await session.exec(stream_query)
-        stream = stream_result.first()
+        stream_result = await session.execute(stream_query)
+        stream = stream_result.scalar_one_or_none()
         
         if stream is None:
             raise HTTPException(
@@ -712,12 +720,12 @@ async def update_stream(
         # Get updated statistics for the response
         stats_query = select(
             func.count(LiveBet.id).label("total_bets"),
-            func.max(LiveBet.payout_multiplier).label("highest_multiplier"),
-            func.min(LiveBet.payout_multiplier).label("lowest_multiplier"),
-            func.avg(LiveBet.payout_multiplier).label("average_multiplier")
+            func.max(LiveBet.round_result).label("highest_multiplier"),
+            func.min(LiveBet.round_result).label("lowest_multiplier"),
+            func.avg(LiveBet.round_result).label("average_multiplier")
         ).where(LiveBet.stream_id == stream_id)
         
-        stats_result = await session.exec(stats_query)
+        stats_result = await session.execute(stats_query)
         stats = stats_result.first()
         
         total_bets = stats[0] or 0
@@ -733,8 +741,8 @@ async def update_stream(
             .limit(10)
         )
         
-        recent_bets_result = await session.exec(recent_bets_query)
-        recent_bet_records = recent_bets_result.all()
+        recent_bets_result = await session.execute(recent_bets_query)
+        recent_bet_records = recent_bets_result.scalars().all()
         
         # Convert to BetRecord format
         recent_bets = []
@@ -808,8 +816,8 @@ async def export_stream_csv(
     try:
         # Verify stream exists
         stream_query = select(LiveStream).where(LiveStream.id == stream_id)
-        stream_result = await session.exec(stream_query)
-        stream = stream_result.first()
+        stream_result = await session.execute(stream_query)
+        stream = stream_result.scalar_one_or_none()
         
         if stream is None:
             raise HTTPException(
@@ -824,8 +832,8 @@ async def export_stream_csv(
             .order_by(LiveBet.nonce.asc())
         )
         
-        bets_result = await session.exec(bets_query)
-        all_bets = bets_result.all()
+        bets_result = await session.execute(bets_query)
+        all_bets = bets_result.scalars().all()
         
         # Create CSV content in memory
         output = io.StringIO()

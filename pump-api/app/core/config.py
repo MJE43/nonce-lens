@@ -34,6 +34,9 @@ class Settings:
     api_cors_origins: List[str]
     max_nonces: int
     ingest_token: str | None
+    api_host: str
+    api_port: int
+    ingest_rate_limit: int
 
 
 def get_settings() -> Settings:
@@ -51,9 +54,28 @@ def get_settings() -> Settings:
     if ingest_token == "":
         ingest_token = None
 
+    # API server configuration
+    api_host = _get_env("API_HOST", "127.0.0.1")
+    
+    api_port_raw = _get_env("API_PORT", "8000")
+    try:
+        api_port = int(api_port_raw)
+    except ValueError:
+        api_port = 8000
+
+    # Rate limiting configuration
+    ingest_rate_limit_raw = _get_env("INGEST_RATE_LIMIT", "60")
+    try:
+        ingest_rate_limit = int(ingest_rate_limit_raw)
+    except ValueError:
+        ingest_rate_limit = 60
+
     return Settings(
         database_url=database_url,
         api_cors_origins=api_cors_origins,
         max_nonces=max_nonces,
         ingest_token=ingest_token,
+        api_host=api_host,
+        api_port=api_port,
+        ingest_rate_limit=ingest_rate_limit,
     )

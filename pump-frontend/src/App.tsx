@@ -6,10 +6,12 @@ import RunsList from "./pages/RunsList";
 import Header from "./components/Header"; // Import the new Header
 import LiveStreamDetail from "./pages/LiveStreamDetail";
 import LiveStreamsList from "./pages/LiveStreamsList";
+import ErrorBoundary from "./components/ErrorBoundary";
+import LiveStreamsErrorBoundary from "./components/LiveStreamsErrorBoundary";
 
 function App() {
   return (
-    <>
+    <ErrorBoundary>
       <Toaster
         position="bottom-right"
         toastOptions={{
@@ -27,13 +29,27 @@ function App() {
               <Route path="/" element={<RunsList />} />
               <Route path="/new" element={<NewRun />} />
               <Route path="/runs/:id" element={<RunDetail />} />
-              <Route path="/live" element={<LiveStreamsList />} />
-              <Route path="/live/:id" element={<LiveStreamDetail />} />
+              <Route 
+                path="/live" 
+                element={
+                  <LiveStreamsErrorBoundary>
+                    <LiveStreamsList />
+                  </LiveStreamsErrorBoundary>
+                } 
+              />
+              <Route 
+                path="/live/:id" 
+                element={
+                  <LiveStreamsErrorBoundary>
+                    <LiveStreamDetail />
+                  </LiveStreamsErrorBoundary>
+                } 
+              />
             </Routes>
           </div>
         </main>
       </div>
-    </>
+    </ErrorBoundary>
   );
 }
 

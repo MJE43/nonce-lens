@@ -342,7 +342,7 @@ export const testApiConnection = async (): Promise<{
 
     return {
       success: false,
-      error: error.message,
+      error: error instanceof Error ? error.message : "Unknown error occurred",
       responseTime,
     };
   }
@@ -473,41 +473,44 @@ export const distancesApi = {
   },
 };
 
-// Live Streams API Types
+// Live Streams API Types (matching backend snake_case format)
 export interface StreamSummary {
   id: string;
-  serverSeedHashed: string;
-  clientSeed: string;
-  createdAt: string;
-  lastSeenAt: string;
-  totalBets: number;
-  highestMultiplier: number;
+  server_seed_hashed: string;
+  client_seed: string;
+  created_at: string;
+  last_seen_at: string;
+  total_bets: number;
+  highest_multiplier: number;
   notes?: string;
 }
 
 export interface StreamDetail {
   id: string;
-  serverSeedHashed: string;
-  clientSeed: string;
-  createdAt: string;
-  lastSeenAt: string;
-  totalBets: number;
-  highestMultiplier: number;
+  server_seed_hashed: string;
+  client_seed: string;
+  created_at: string;
+  last_seen_at: string;
+  total_bets: number;
+  highest_multiplier: number;
+  lowest_multiplier?: number;
+  average_multiplier?: number;
   notes?: string;
+  recent_bets: BetRecord[];
 }
 
 export interface BetRecord {
   id: number;
-  antebotBetId: string;
-  receivedAt: string;
-  dateTime?: string;
+  antebot_bet_id: string;
+  received_at: string;
+  date_time?: string;
   nonce: number;
   amount: number;
-  payoutMultiplier: number;
+  payout_multiplier: number;
   payout: number;
   difficulty: "easy" | "medium" | "hard" | "expert";
-  roundTarget?: number;
-  roundResult?: number;
+  round_target?: number;
+  round_result?: number;
 }
 
 export interface TailResponse {
@@ -521,7 +524,7 @@ export interface StreamListFilters {
 }
 
 export interface StreamBetsFilters {
-  minMultiplier?: number;
+  min_multiplier?: number;
   limit?: number;
   offset?: number;
   order?: "nonce_asc" | "id_desc";

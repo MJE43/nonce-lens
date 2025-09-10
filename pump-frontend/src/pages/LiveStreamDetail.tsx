@@ -1,8 +1,16 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { useStreamDetail, useStreamBets, useDeleteStream, useUpdateStream } from "../lib/hooks";
+import { 
+  useEnhancedStreamDetail, 
+  useEnhancedStreamBets, 
+  useEnhancedDeleteStream, 
+  useEnhancedUpdateStream 
+} from "@/hooks/useEnhancedLiveStreams";
 import { liveStreamsApi } from "../lib/api";
 import type { BetRecord, TailResponse } from "../lib/api";
+import Breadcrumb from "../components/Breadcrumb";
+import OfflineIndicator from "@/components/OfflineIndicator";
+import { showSuccessToast, showErrorToast } from "@/lib/errorHandling";
 import { 
   ArrowLeft, 
   Download, 
@@ -71,23 +79,25 @@ const LiveStreamDetail = () => {
   
   // State for bet filtering
   const [minMultiplier, setMinMultiplier] = useState<number | undefined>();
-  const [orderBy, setOrderBy] = useState<"nonce_asc" | "id_desc">("nonce_asc");
+  const [orderBy, setOrderBy] = useState<"nonce_asc" | "id_desc">("id_desc");
   
   // State for real-time updates
   const [bets, setBets] = useState<BetRecord[]>([]);
   const [lastId, setLastId] = useState<number>(0);
+  const [newBetsCount, setNewBetsCount] = useState<number>(0);
   const [isPolling, setIsPolling] = useState(true);
+  const [highFrequencyMode, setHighFrequencyMode] = useState(true); // Default to high frequency for betting
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
   // Hooks
-  const { data: streamDetail, isLoading: streamLoading, error: streamError } = useStreamDetail(id!);
-  const { data: initialBetsData, isLoading: betsLoading } = useStreamBets(id!, {
-    minMultiplier,
+  const { data: streamDetail, isLoading: streamLoading, error: streamError, refetch: refetchStream } = useEnhancedStreamDetail(id!);
+  const { data: initialBetsData, isLoading: betsLoading, refetch: refetchBets } = useEnhancedStreamBets(id!, {
+    // Remove server-side filtering - we'll do it client-side for consistency with real-time updates
     order: orderBy,
     limit: 1000
   });
-  const deleteStreamMutation = useDeleteStream();
-  const updateStreamMutation = useUpdateStream();
+  const deleteStreamMutation = useEnhancedDeleteStream();
+  const updateStreamMutation = useEnhancedUpdateStream();
 
   // Initialize notes when stream data loads
   useEffect(() => {
@@ -106,6 +116,11 @@ const LiveStreamDetail = () => {
     }
   }, [initialBetsData]);
 
+  // Refetch when order changes (since we use server-side sorting)
+  useEffect(() => {
+    refetchBets();
+  }, [orderBy, refetchBets]);
+
   // Polling for real-time updates
   useEffect(() => {
     if (!id || !isPolling || lastId === 0) return;
@@ -117,22 +132,32 @@ const LiveStreamDetail = () => {
         
         if (tailData.bets.length > 0) {
           setBets(prevBets => [...prevBets, ...tailData.bets]);
-          setLastId(tailData.lastId);
+          // Update lastId to the highest ID from the new bets
+          const newMaxId = Math.max(...tailData.bets.map(bet => bet.id));
+          setLastId(newMaxId);
+          // Update new bets counter
+          setNewBetsCount(prev => prev + tailData.bets.length);
         }
-      } catch (error) {
+      } catch (error: any) {
         console.error("Polling error:", error);
-        // Continue polling even on errors
+        // Show warning for polling errors but continue polling
+        if (error?.response?.status >= 500) {
+          showErrorToast(error, "Connection issues detected. Retrying...");
+        }
       }
     };
 
-    pollingIntervalRef.current = setInterval(pollForUpdates, 2000); // Poll every 2 seconds
+    // Start polling immediately
+    pollForUpdates();
+    const interval = highFrequencyMode ? 500 : 2000; // 0.5s for high frequency, 2s for normal
+    pollingIntervalRef.current = setInterval(pollForUpdates, interval);
 
     return () => {
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
       }
     };
-  }, [id, lastId, isPolling]);
+  }, [id, lastId, isPolling, highFrequencyMode]);
 
   // Cleanup polling on unmount
   useEffect(() => {
@@ -150,8 +175,9 @@ const LiveStreamDetail = () => {
     try {
       await deleteStreamMutation.mutateAsync(id);
       navigate("/live");
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to delete stream:", error);
+      // Error handling is now done in the mutation hook
     }
   };
 
@@ -165,16 +191,22 @@ const LiveStreamDetail = () => {
         data: { notes: notesValue.trim() || undefined }
       });
       setIsEditingNotes(false);
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to update notes:", error);
+      // Error handling is now done in the mutation hook
     }
   };
 
   // Handle export CSV
   const handleExportCsv = () => {
     if (!id) return;
-    const url = liveStreamsApi.getExportCsvUrl(id);
-    window.open(url, "_blank");
+    try {
+      const url = liveStreamsApi.getExportCsvUrl(id);
+      window.open(url, "_blank");
+      showSuccessToast("CSV export started");
+    } catch (error) {
+      showErrorToast(error, "Failed to export CSV. Please try again.");
+    }
   };
 
   // Format timestamp
@@ -198,10 +230,31 @@ const LiveStreamDetail = () => {
     }
   };
 
-  // Filter bets based on minMultiplier
+  // Filter bets based on minMultiplier (using round_result instead of payout_multiplier)
   const filteredBets = minMultiplier 
-    ? bets.filter(bet => bet.payoutMultiplier >= minMultiplier)
+    ? bets.filter(bet => {
+        const multiplier = typeof bet.round_result === 'string' 
+          ? parseFloat(bet.round_result) 
+          : bet.round_result;
+        return multiplier && multiplier >= minMultiplier;
+      })
     : bets;
+
+  // Debug logging (remove in production)
+  if (process.env.NODE_ENV === 'development') {
+    console.log('Debug info:', {
+      totalBets: bets.length,
+      minMultiplier,
+      filteredBets: filteredBets.length,
+      sampleBets: bets.slice(0, 3).map(bet => ({
+        id: bet.id,
+        nonce: bet.nonce,
+        round_result: bet.round_result,
+        payout_multiplier: bet.payout_multiplier,
+        type: typeof bet.round_result
+      }))
+    });
+  }
 
   // Sort bets based on orderBy
   const sortedBets = [...filteredBets].sort((a, b) => {
@@ -212,15 +265,45 @@ const LiveStreamDetail = () => {
     }
   });
 
+  // Route parameter validation
   if (!id) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
-        <Card className="bg-red-900/20 border-red-500/50">
+        <Card className="bg-red-900/20 border-red-500/50 max-w-md mx-auto">
           <CardHeader>
-            <CardTitle className="text-red-400">Invalid Stream</CardTitle>
+            <CardTitle className="text-red-400">Invalid Stream ID</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-red-300">Stream ID is required</p>
+            <p className="text-red-300 mb-4">Stream ID is required to view stream details.</p>
+            <Button variant="outline" asChild>
+              <Link to="/live">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Live Streams
+              </Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // Additional validation for UUID format (basic check)
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(id)) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
+        <Card className="bg-red-900/20 border-red-500/50 max-w-md mx-auto">
+          <CardHeader>
+            <CardTitle className="text-red-400">Invalid Stream ID Format</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-red-300 mb-4">The provided stream ID is not in a valid format.</p>
+            <Button variant="outline" asChild>
+              <Link to="/live">
+                <ArrowLeft className="w-4 h-4 mr-2" />
+                Back to Live Streams
+              </Link>
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -275,18 +358,24 @@ const LiveStreamDetail = () => {
       <div className="absolute bottom-0 left-0 w-96 h-96 bg-gradient-to-tr from-emerald-500/10 to-blue-500/10 rounded-full blur-3xl" />
 
       <div className="relative z-10 container mx-auto px-4 py-12 max-w-7xl space-y-8">
-        {/* Header with navigation */}
-        <div className="flex items-center gap-4">
-          <Button variant="outline" size="sm" asChild>
-            <Link to="/live">
-              <ArrowLeft className="w-4 h-4 mr-2" />
-              Back to Streams
-            </Link>
-          </Button>
-          <div className="flex items-center gap-2">
-            <Activity className="w-5 h-5 text-blue-400" />
-            <h1 className="text-2xl font-bold text-white">Live Stream Detail</h1>
-          </div>
+        {/* Breadcrumb Navigation */}
+        <Breadcrumb 
+          items={[
+            { label: "Live", href: "/live" },
+            { label: streamDetail ? `${streamDetail.server_seed_hashed.substring(0, 10)}...` : "Stream Detail" }
+          ]} 
+        />
+
+        {/* Offline Indicator */}
+        <OfflineIndicator onRetry={() => {
+          refetchStream();
+          refetchBets();
+        }} />
+
+        {/* Header */}
+        <div className="flex items-center gap-2">
+          <Activity className="w-5 h-5 text-blue-400" />
+          <h1 className="text-2xl font-bold text-white">Live Stream Detail</h1>
         </div>
 
         {/* Stream Metadata Card */}
@@ -301,7 +390,19 @@ const LiveStreamDetail = () => {
                 <div className="flex items-center gap-2 text-green-400">
                   <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
                   <span className="text-sm">Live</span>
+                  {highFrequencyMode && (
+                    <span className="text-xs bg-green-600 px-1 rounded">HF</span>
+                  )}
                 </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setHighFrequencyMode(!highFrequencyMode)}
+                  className={highFrequencyMode ? 'bg-blue-600/20 border-blue-500' : ''}
+                >
+                  <Activity className="w-4 h-4 mr-2" />
+                  {highFrequencyMode ? '0.5s' : '2s'}
+                </Button>
                 <Button
                   variant="outline"
                   size="sm"
@@ -322,7 +423,7 @@ const LiveStreamDetail = () => {
                   Server Seed Hash
                 </Label>
                 <div className="font-mono text-sm bg-slate-900/50 p-3 rounded border border-slate-700">
-                  <span className="text-slate-300">{formatSeedPrefix(streamDetail.serverSeedHashed)}</span>
+                  <span className="text-slate-300">{formatSeedPrefix(streamDetail.server_seed_hashed)}</span>
                 </div>
               </div>
               <div className="space-y-2">
@@ -331,7 +432,7 @@ const LiveStreamDetail = () => {
                   Client Seed
                 </Label>
                 <div className="font-mono text-sm bg-slate-900/50 p-3 rounded border border-slate-700">
-                  <span className="text-slate-300">{streamDetail.clientSeed}</span>
+                  <span className="text-slate-300">{streamDetail.client_seed}</span>
                 </div>
               </div>
             </div>
@@ -339,19 +440,19 @@ const LiveStreamDetail = () => {
             {/* Statistics */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="text-center p-4 bg-slate-900/30 rounded-lg border border-slate-700">
-                <div className="text-2xl font-bold text-white">{streamDetail.totalBets.toLocaleString()}</div>
+                <div className="text-2xl font-bold text-white">{streamDetail.total_bets.toLocaleString()}</div>
                 <div className="text-sm text-slate-400">Total Bets</div>
               </div>
               <div className="text-center p-4 bg-slate-900/30 rounded-lg border border-slate-700">
-                <div className="text-2xl font-bold text-yellow-400">{streamDetail.highestMultiplier.toFixed(2)}x</div>
+                <div className="text-2xl font-bold text-yellow-400">{streamDetail.highest_multiplier?.toFixed(2) || '0.00'}x</div>
                 <div className="text-sm text-slate-400">Highest Multiplier</div>
               </div>
               <div className="text-center p-4 bg-slate-900/30 rounded-lg border border-slate-700">
-                <div className="text-2xl font-bold text-blue-400">{formatTimestamp(streamDetail.createdAt).split(',')[0]}</div>
+                <div className="text-2xl font-bold text-blue-400">{formatTimestamp(streamDetail.created_at).split(',')[0]}</div>
                 <div className="text-sm text-slate-400">Created</div>
               </div>
               <div className="text-center p-4 bg-slate-900/30 rounded-lg border border-slate-700">
-                <div className="text-2xl font-bold text-green-400">{formatTimestamp(streamDetail.lastSeenAt).split(',')[1]}</div>
+                <div className="text-2xl font-bold text-green-400">{formatTimestamp(streamDetail.last_seen_at).split(',')[1]}</div>
                 <div className="text-sm text-slate-400">Last Seen</div>
               </div>
             </div>
@@ -476,9 +577,20 @@ const LiveStreamDetail = () => {
                   value={minMultiplier || ""}
                   onChange={(e) => {
                     const value = e.target.value;
-                    setMinMultiplier(value ? parseFloat(value) : undefined);
+                    if (value === "") {
+                      setMinMultiplier(undefined);
+                    } else {
+                      const parsed = parseFloat(value);
+                      setMinMultiplier(isNaN(parsed) ? undefined : parsed);
+                    }
                   }}
-                  className="bg-slate-900/50 border-slate-700 text-slate-300 w-32"
+                  className={`w-32 ${
+                    minMultiplier 
+                      ? "bg-blue-900/30 border-blue-500 text-blue-300" 
+                      : "bg-slate-900/50 border-slate-700 text-slate-300"
+                  }`}
+                  min="0"
+                  step="0.01"
                 />
               </div>
               <div className="space-y-2">
@@ -497,12 +609,18 @@ const LiveStreamDetail = () => {
                 variant="outline"
                 onClick={() => {
                   setMinMultiplier(undefined);
-                  setOrderBy("nonce_asc");
+                  setOrderBy("id_desc");
                 }}
                 className="flex items-center gap-2"
+                disabled={!minMultiplier}
               >
                 <X className="w-4 h-4" />
                 Clear Filters
+                {minMultiplier && (
+                  <Badge variant="secondary" className="ml-1 h-4 px-1 text-xs">
+                    1
+                  </Badge>
+                )}
               </Button>
             </div>
             <div className="mt-4 text-sm text-slate-400">
@@ -522,7 +640,14 @@ const LiveStreamDetail = () => {
               </CardTitle>
               <div className="flex items-center gap-2 text-slate-400">
                 <Clock className="w-4 h-4" />
-                <span className="text-sm">Updates every 2 seconds</span>
+                <span className="text-sm">
+                  Updates every {highFrequencyMode ? '0.5' : '2'} seconds
+                </span>
+                {newBetsCount > 0 && (
+                  <Badge variant="outline" className="border-green-500 text-green-400">
+                    +{newBetsCount} new
+                  </Badge>
+                )}
               </div>
             </div>
             <CardDescription className="text-slate-400">
@@ -559,7 +684,6 @@ const LiveStreamDetail = () => {
                       <TableHead className="text-slate-300">Payout</TableHead>
                       <TableHead className="text-slate-300">Difficulty</TableHead>
                       <TableHead className="text-slate-300">Target</TableHead>
-                      <TableHead className="text-slate-300">Result</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -572,9 +696,9 @@ const LiveStreamDetail = () => {
                           {bet.nonce.toLocaleString()}
                         </TableCell>
                         <TableCell className="text-slate-400 text-sm">
-                          {bet.dateTime 
-                            ? formatTimestamp(bet.dateTime)
-                            : formatTimestamp(bet.receivedAt)
+                          {bet.date_time 
+                            ? formatTimestamp(bet.date_time)
+                            : formatTimestamp(bet.received_at)
                           }
                         </TableCell>
                         <TableCell className="font-mono text-slate-300">
@@ -584,16 +708,16 @@ const LiveStreamDetail = () => {
                           <Badge 
                             variant="outline" 
                             className={`${
-                              bet.payoutMultiplier >= 1000 
+                              (bet.round_result || 0) >= 1000 
                                 ? "border-yellow-500/50 text-yellow-400" 
-                                : bet.payoutMultiplier >= 100
+                                : (bet.round_result || 0) >= 100
                                 ? "border-orange-500/50 text-orange-400"
-                                : bet.payoutMultiplier >= 10
+                                : (bet.round_result || 0) >= 10
                                 ? "border-blue-500/50 text-blue-400"
                                 : "border-slate-500/50 text-slate-400"
                             }`}
                           >
-                            {bet.payoutMultiplier.toFixed(2)}x
+                            {bet.round_result?.toFixed(2) || '0.00'}x
                           </Badge>
                         </TableCell>
                         <TableCell className="font-mono text-slate-300">
@@ -607,10 +731,7 @@ const LiveStreamDetail = () => {
                           </Badge>
                         </TableCell>
                         <TableCell className="font-mono text-slate-400 text-sm">
-                          {bet.roundTarget?.toFixed(2) || "—"}
-                        </TableCell>
-                        <TableCell className="font-mono text-slate-400 text-sm">
-                          {bet.roundResult?.toFixed(2) || "—"}
+                          {bet.round_target?.toFixed(2) || "—"}
                         </TableCell>
                       </TableRow>
                     ))}

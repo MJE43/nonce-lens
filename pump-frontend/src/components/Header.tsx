@@ -26,6 +26,16 @@ const Header = () => {
               >
                 Runs
               </NavLink>
+              <NavLink
+                to="/live"
+                className={({ isActive }) =>
+                  `hover:text-white transition-colors ${
+                    isActive ? "text-white" : "text-gray-400"
+                  }`
+                }
+              >
+                Live
+              </NavLink>
             </nav>
           </div>
           <div className="flex items-center">

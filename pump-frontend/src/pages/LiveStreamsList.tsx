@@ -1,7 +1,9 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { useLiveStreams } from "../lib/hooks";
-import { Activity, Calendar, TrendingUp, Eye, EyeOff } from "lucide-react";
+import { useEnhancedLiveStreams } from "@/hooks/useEnhancedLiveStreams";
+import Breadcrumb from "../components/Breadcrumb";
+import OfflineIndicator from "@/components/OfflineIndicator";
+import { Activity, Calendar, TrendingUp, Eye, EyeOff, AlertCircle } from "lucide-react";
 
 // ShadCN Components
 import { Button } from "@/components/ui/button";
@@ -27,7 +29,12 @@ const LiveStreamsList = () => {
   const [autoFollow, setAutoFollow] = useState(false);
   const [lastMostRecentId, setLastMostRecentId] = useState<string | null>(null);
 
-  const { data, isLoading, error } = useLiveStreams({
+  const { 
+    data, 
+    isLoading, 
+    error, 
+    refetch
+  } = useEnhancedLiveStreams({
     limit: 100,
     offset: 0,
   });
@@ -38,7 +45,7 @@ const LiveStreamsList = () => {
 
     // Find the most recently active stream
     const mostRecentStream = data.streams.reduce((latest, current) => {
-      return new Date(current.lastSeenAt) > new Date(latest.lastSeenAt) 
+      return new Date(current.last_seen_at) > new Date(latest.last_seen_at) 
         ? current 
         : latest;
     });
@@ -92,12 +99,50 @@ const LiveStreamsList = () => {
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.1),transparent_70%)]" />
         <div className="relative z-10 container mx-auto px-4 py-12 max-w-7xl">
-          <Card className="bg-red-900/20 border-red-500/50 max-w-md mx-auto">
+          <Card className="bg-red-900/20 border-red-500/50 max-w-2xl mx-auto">
             <CardHeader>
-              <CardTitle className="text-red-400">Error Loading Streams</CardTitle>
+              <div className="flex items-center gap-3">
+                <AlertCircle className="w-6 h-6 text-red-400" />
+                <div>
+                  <CardTitle className="text-red-400">Error Loading Streams</CardTitle>
+                  <CardDescription className="text-red-300">
+                    Unable to load live streams data
+                  </CardDescription>
+                </div>
+              </div>
             </CardHeader>
-            <CardContent>
-              <p className="text-red-300">{error.message}</p>
+            <CardContent className="space-y-4">
+              <div className="bg-slate-900/50 p-3 rounded border border-slate-700">
+                <p className="text-red-300 text-sm">{error.message}</p>
+              </div>
+              
+              <div className="bg-slate-900/30 p-3 rounded border border-slate-700">
+                <h4 className="text-sm font-medium text-slate-300 mb-2">Possible solutions:</h4>
+                <ul className="text-sm text-slate-400 space-y-1">
+                  <li>• Check your internet connection</li>
+                  <li>• Verify the backend API is running on port 8000</li>
+                  <li>• Try refreshing the page</li>
+                </ul>
+              </div>
+              
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  onClick={() => refetch()}
+                  className="flex items-center gap-2"
+                >
+                  <Activity className="w-4 h-4" />
+                  Retry
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => window.location.reload()}
+                  className="flex items-center gap-2"
+                >
+                  <Activity className="w-4 h-4" />
+                  Reload Page
+                </Button>
+              </div>
             </CardContent>
           </Card>
         </div>
@@ -115,6 +160,12 @@ const LiveStreamsList = () => {
       <div className="absolute bottom-0 left-0 w-96 h-96 bg-gradient-to-tr from-emerald-500/10 to-blue-500/10 rounded-full blur-3xl" />
 
       <div className="relative z-10 container mx-auto px-4 py-12 max-w-7xl space-y-8">
+        {/* Breadcrumb Navigation */}
+        <Breadcrumb items={[{ label: "Live" }]} />
+
+        {/* Offline Indicator */}
+        <OfflineIndicator onRetry={() => refetch()} />
+
         {/* Header */}
         <div className="flex flex-col md:flex-row md:items-center md:justify-between space-y-4 md:space-y-0">
           <div className="space-y-2">
@@ -202,17 +253,17 @@ const LiveStreamsList = () => {
                         className="border-slate-700 hover:bg-slate-700/30 transition-colors"
                       >
                         <TableCell className="font-mono text-slate-300">
-                          {formatSeedPrefix(stream.serverSeedHashed)}
+                          {formatSeedPrefix(stream.server_seed_hashed)}
                         </TableCell>
                         <TableCell className="font-mono text-slate-300">
-                          {stream.clientSeed}
+                          {stream.client_seed}
                         </TableCell>
                         <TableCell className="text-slate-400">
-                          {formatTimestamp(stream.lastSeenAt)}
+                          {formatTimestamp(stream.last_seen_at)}
                         </TableCell>
                         <TableCell>
                           <Badge variant="secondary" className="bg-slate-700 text-slate-200">
-                            {stream.totalBets.toLocaleString()}
+                            {stream.total_bets.toLocaleString()}
                           </Badge>
                         </TableCell>
                         <TableCell>
@@ -220,7 +271,7 @@ const LiveStreamsList = () => {
                             variant="outline" 
                             className="border-yellow-500/50 text-yellow-400"
                           >
-                            {stream.highestMultiplier.toFixed(2)}x
+                            {stream.highest_multiplier?.toFixed(2) || '0.00'}x
                           </Badge>
                         </TableCell>
                         <TableCell>
