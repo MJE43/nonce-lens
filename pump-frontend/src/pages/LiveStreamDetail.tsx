@@ -8,7 +8,6 @@ import {
 import { useStreamBetsQuery } from "@/hooks/useStreamBetsQuery";
 import { useAnalyticsState } from "@/hooks/useAnalyticsState";
 import { liveStreamsApi } from "../lib/api";
-import Breadcrumb from "../components/Breadcrumb";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import { showSuccessToast, showErrorToast } from "../lib/errorHandling";
 import {
@@ -256,24 +255,50 @@ const LiveStreamDetail = () => {
   const bets = betsQuery.bets;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative overflow-hidden">
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.1),transparent_70%)]" />
-      <div className="absolute top-0 right-0 w-96 h-96 bg-gradient-to-br from-blue-500/10 to-purple-500/10 rounded-full blur-3xl" />
-      <div className="absolute bottom-0 left-0 w-96 h-96 bg-gradient-to-tr from-emerald-500/10 to-blue-500/10 rounded-full blur-3xl" />
+    <div className="min-h-screen bg-background">
+      {/* Header */}
+      <div className="border-b bg-card/50 backdrop-blur supports-[backdrop-filter]:bg-card/60">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <Link to="/streams">
+                <Button variant="outline" size="sm" className="gap-2">
+                  <ArrowLeft className="w-4 h-4" />
+                  Back to Streams
+                </Button>
+              </Link>
+              <div className="flex items-center gap-2">
+                <Activity className="w-5 h-5 text-primary" />
+                <h1 className="text-xl font-semibold">Live Stream Detail</h1>
+              </div>
+            </div>
 
-      <div className="relative z-10 container mx-auto px-4 py-12 max-w-7xl space-y-8">
-        {/* Breadcrumb Navigation */}
-        <Breadcrumb
-          items={[
-            { label: "Live", href: "/live" },
-            {
-              label: streamDetail
-                ? `${streamDetail.server_seed_hashed.substring(0, 10)}...`
-                : "Stream Detail",
-            },
-          ]}
-        />
+            <div className="flex items-center space-x-2">
+              <Button
+                onClick={() => setIsPolling(!isPolling)}
+                variant={isPolling ? "default" : "outline"}
+                size="sm"
+                className="gap-2"
+              >
+                <Activity className="w-4 h-4" />
+                {isPolling ? "Pause" : "Resume"}
+              </Button>
 
+              <Button
+                onClick={() => setHighFrequencyMode(!highFrequencyMode)}
+                variant={highFrequencyMode ? "default" : "outline"}
+                size="sm"
+                className="gap-2"
+              >
+                <RefreshCw className="w-4 h-4" />
+                {highFrequencyMode ? "Normal" : "HF Mode"}
+              </Button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         {/* Offline Indicator */}
         <OfflineIndicator
           onRetry={() => {
@@ -282,26 +307,20 @@ const LiveStreamDetail = () => {
           }}
         />
 
-        {/* Header */}
-        <div className="flex items-center gap-2">
-          <Activity className="w-5 h-5 text-blue-400" />
-          <h1 className="text-2xl font-bold text-white">Live Stream Detail</h1>
-        </div>
-
         {/* Stream Metadata Card */}
-        <Card className="bg-slate-800/50 backdrop-blur-xl border-slate-700/50 shadow-2xl">
+        <Card className="shadow-md">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="text-white flex items-center gap-2">
-                <Hash className="w-5 h-5 text-blue-400" />
+              <CardTitle className="flex items-center gap-2">
+                <Hash className="w-5 h-5 text-primary" />
                 Stream Information
               </CardTitle>
               <div className="flex items-center gap-2">
-                <div className="flex items-center gap-2 text-green-400">
-                  <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
-                  <span className="text-sm">Live</span>
+                <div className="flex items-center gap-2 text-green-600">
+                  <div className="w-2 h-2 rounded-full bg-green-600 animate-pulse"></div>
+                  <span className="text-sm font-medium">Live</span>
                   {highFrequencyMode && (
-                    <span className="text-xs bg-green-600 px-1 rounded">
+                    <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
                       HF
                     </span>
                   )}
@@ -309,26 +328,35 @@ const LiveStreamDetail = () => {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setHighFrequencyMode(!highFrequencyMode)}
-                  className={
-                    highFrequencyMode ? "bg-blue-600/20 border-blue-500" : ""
-                  }
+                  onClick={handleExportCsv}
+                  disabled={bets.length === 0}
+                  className="gap-2"
                 >
-                  <Activity className="w-4 h-4 mr-2" />
-                  {highFrequencyMode ? "0.5s" : "2s"}
+                  <Download className="w-4 h-4" />
+                  Export CSV
                 </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setIsPolling(!isPolling)}
-                >
-                  <RefreshCw
-                    className={`w-4 h-4 mr-2 ${
-                      isPolling ? "animate-spin" : ""
-                    }`}
-                  />
-                  {isPolling ? "Pause" : "Resume"}
-                </Button>
+                {!isEditingNotes ? (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsEditingNotes(true)}
+                    className="gap-2"
+                  >
+                    <Edit3 className="w-4 h-4" />
+                    Edit Notes
+                  </Button>
+                ) : (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={handleSaveNotes}
+                    disabled={updateStreamMutation.isPending}
+                    className="gap-2"
+                  >
+                    <Save className="w-4 h-4" />
+                    {updateStreamMutation.isPending ? "Saving..." : "Save"}
+                  </Button>
+                )}
               </div>
             </div>
           </CardHeader>
@@ -336,54 +364,54 @@ const LiveStreamDetail = () => {
             {/* Seed Information */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div className="space-y-2">
-                <Label className="text-slate-300 flex items-center gap-2">
+                <Label className="flex items-center gap-2 text-sm font-medium">
                   <Hash className="w-4 h-4" />
                   Server Seed Hash
                 </Label>
-                <div className="font-mono text-sm bg-slate-900/50 p-3 rounded border border-slate-700">
-                  <span className="text-slate-300">
+                <div className="font-mono text-sm bg-muted p-3 rounded-md border">
+                  <span>
                     {formatSeedPrefix(streamDetail.server_seed_hashed)}
                   </span>
                 </div>
               </div>
               <div className="space-y-2">
-                <Label className="text-slate-300 flex items-center gap-2">
+                <Label className="flex items-center gap-2 text-sm font-medium">
                   <Key className="w-4 h-4" />
                   Client Seed
                 </Label>
-                <div className="font-mono text-sm bg-slate-900/50 p-3 rounded border border-slate-700">
-                  <span className="text-slate-300">
-                    {streamDetail.client_seed}
-                  </span>
+                <div className="font-mono text-sm bg-muted p-3 rounded-md border">
+                  <span>{streamDetail.client_seed}</span>
                 </div>
               </div>
             </div>
 
             {/* Statistics */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="text-center p-4 bg-slate-900/30 rounded-lg border border-slate-700">
-                <div className="text-2xl font-bold text-white">
+              <div className="text-center p-4 bg-muted/50 rounded-lg border">
+                <div className="text-2xl font-bold">
                   {streamDetail.total_bets.toLocaleString()}
                 </div>
-                <div className="text-sm text-slate-400">Total Bets</div>
+                <div className="text-sm text-muted-foreground">Total Bets</div>
               </div>
-              <div className="text-center p-4 bg-slate-900/30 rounded-lg border border-slate-700">
-                <div className="text-2xl font-bold text-yellow-400">
+              <div className="text-center p-4 bg-muted/50 rounded-lg border">
+                <div className="text-2xl font-bold text-orange-600">
                   {streamDetail.highest_multiplier?.toFixed(2) || "0.00"}x
                 </div>
-                <div className="text-sm text-slate-400">Highest Multiplier</div>
+                <div className="text-sm text-muted-foreground">
+                  Highest Multiplier
+                </div>
               </div>
-              <div className="text-center p-4 bg-slate-900/30 rounded-lg border border-slate-700">
+              <div className="text-center p-4 bg-muted/50 rounded-lg border">
                 <div className="text-2xl font-bold text-blue-400">
                   {formatTimestamp(streamDetail.created_at).split(",")[0]}
                 </div>
-                <div className="text-sm text-slate-400">Created</div>
+                <div className="text-sm text-muted-foreground">Created</div>
               </div>
-              <div className="text-center p-4 bg-slate-900/30 rounded-lg border border-slate-700">
+              <div className="text-center p-4 bg-muted/50 rounded-lg border">
                 <div className="text-2xl font-bold text-green-400">
                   {formatTimestamp(streamDetail.last_seen_at).split(",")[1]}
                 </div>
-                <div className="text-sm text-slate-400">Last Seen</div>
+                <div className="text-sm text-muted-foreground">Last Seen</div>
               </div>
             </div>
 
@@ -494,21 +522,21 @@ const LiveStreamDetail = () => {
         </Card>
 
         {/* Bets Table */}
-        <Card className="bg-slate-800/50 backdrop-blur-xl border-slate-700/50 shadow-2xl">
+        <Card className="shadow-md">
           <CardHeader>
             <div className="flex items-center justify-between">
-              <CardTitle className="text-white flex items-center gap-2">
-                <BarChart3 className="w-5 h-5 text-blue-400" />
+              <CardTitle className="flex items-center gap-2">
+                <BarChart3 className="w-5 h-5 text-primary" />
                 Betting Activity
               </CardTitle>
-              <div className="flex items-center gap-2 text-slate-400">
+              <div className="flex items-center gap-2 text-muted-foreground">
                 <Clock className="w-4 h-4" />
                 <span className="text-sm">
                   Updates every {highFrequencyMode ? "0.5" : "2"} seconds
                 </span>
               </div>
             </div>
-            <CardDescription className="text-slate-400">
+            <CardDescription>
               Real-time betting data for this seed pair
             </CardDescription>
           </CardHeader>
@@ -516,14 +544,14 @@ const LiveStreamDetail = () => {
             {(bets.length === 0 && isPolling) || betsLoading ? (
               <div className="space-y-3">
                 {[...Array(5)].map((_, i) => (
-                  <Skeleton key={i} className="h-12 w-full bg-slate-700" />
+                  <Skeleton key={i} className="h-12 w-full" />
                 ))}
               </div>
             ) : bets.length === 0 ? (
               <div className="text-center py-12">
-                <Activity className="w-16 h-16 text-slate-600 mx-auto mb-4" />
-                <p className="text-slate-400 text-lg mb-2">No bets found</p>
-                <p className="text-slate-500 text-sm">
+                <Activity className="w-16 h-16 text-muted-foreground mx-auto mb-4" />
+                <p className="text-lg mb-2 font-medium">No bets found</p>
+                <p className="text-muted-foreground text-sm">
                   {isPolling
                     ? "Waiting for new bets..."
                     : "Bets will appear here as they are received"}
@@ -536,6 +564,12 @@ const LiveStreamDetail = () => {
                 isLoading={betsLoading}
                 showDistanceColumn={true}
                 showVirtualScrolling={bets.length > 100}
+                hasNextPage={betsQuery.hasNextPage}
+                fetchNextPage={betsQuery.fetchNextPage}
+                isFetchingNextPage={
+                  betsQuery.isFetching && !!betsQuery.hasNextPage
+                }
+                totalCount={betsQuery.total}
               />
             )}
           </CardContent>

@@ -1,16 +1,7 @@
-import React from "react";
-import { createColumnHelper, Column } from "@tanstack/react-table";
+import { createColumnHelper } from "@tanstack/react-table";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import {
-  Star,
-  StarOff,
-  TrendingUp,
-  BarChart3,
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-} from "lucide-react";
+import { Star, StarOff, TrendingUp, BarChart3 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { BetRecord } from "@/lib/api";
 
@@ -64,32 +55,7 @@ const getMultiplierBadgeVariant = (multiplier: number) => {
   return "outline";
 };
 
-const SortableHeader = ({
-  column,
-  children,
-}: {
-  column: Column<BetRecord, unknown>;
-  children: React.ReactNode;
-}) => {
-  return (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="h-auto p-0 font-medium hover:bg-transparent"
-      onClick={() => column.toggleSorting(column.getIsSorted() === "asc")}
-    >
-      <div className="flex items-center gap-1">
-        {children}
-        {{
-          asc: <ArrowUp className="h-3 w-3" />,
-          desc: <ArrowDown className="h-3 w-3" />,
-        }[column.getIsSorted() as string] ?? (
-          <ArrowUpDown className="h-3 w-3 opacity-50" />
-        )}
-      </div>
-    </Button>
-  );
-};
+// SortableHeader removed - using template styling with built-in sorting
 
 // Column helper
 const columnHelper = createColumnHelper<BetRecord>();
@@ -154,24 +120,22 @@ export const createColumns = (options: {
 
     // Nonce column
     columnHelper.accessor("nonce", {
-      header: ({ column }) => (
-        <SortableHeader column={column}>Nonce</SortableHeader>
-      ),
+      header: () => <span className="flex items-center">Nonce</span>,
       cell: ({ getValue }) => (
-        <span className="font-mono text-sm">{getValue().toLocaleString()}</span>
+        <span className="font-mono text-sm tabular-nums">
+          {getValue().toLocaleString()}
+        </span>
       ),
       enableSorting: true,
     }),
 
     // Date/Time column
     columnHelper.accessor("date_time", {
-      header: ({ column }) => (
-        <SortableHeader column={column}>Date/Time</SortableHeader>
-      ),
+      header: () => <span className="flex items-center">Date/Time</span>,
       cell: ({ row }) => {
         const bet = row.original;
         return (
-          <span className="text-sm">
+          <span className="text-sm tabular-nums">
             {formatDateTime(bet.date_time, bet.received_at)}
           </span>
         );
@@ -190,61 +154,30 @@ export const createColumns = (options: {
 
     // Amount column
     columnHelper.accessor("amount", {
-      header: ({ column }) => (
-        <SortableHeader column={column}>Amount</SortableHeader>
-      ),
+      header: () => <span className="flex items-center">Amount</span>,
       cell: ({ getValue }) => (
-        <span className="font-mono text-sm">{formatAmount(getValue())}</span>
+        <span className="font-mono text-sm tabular-nums">
+          {formatAmount(getValue())}
+        </span>
       ),
       enableSorting: true,
-    }),
+      enableColumnFilter: true,
+      filterFn: (row, columnId, filterValue) => {
+        if (!filterValue || !Array.isArray(filterValue)) return true;
+        const [minValue, maxValue] = filterValue as [
+          number | undefined,
+          number | undefined
+        ];
 
-    // Multiplier column
-    columnHelper.accessor("round_result", {
-      id: "multiplier",
-      header: ({ column }) => (
-        <SortableHeader column={column}>
-          <div className="flex items-center gap-1">
-            <TrendingUp className="h-3 w-3" />
-            Multiplier
-          </div>
-        </SortableHeader>
-      ),
-      cell: ({ row }) => {
-        const bet = row.original;
-        const multiplier = bet.round_result ?? bet.payout_multiplier ?? 0;
+        const amount = row.getValue(columnId) as number;
 
-        return (
-          <Badge
-            variant={getMultiplierBadgeVariant(multiplier)}
-            className="font-mono text-xs"
-          >
-            {formatMultiplier(multiplier)}
-          </Badge>
-        );
-      },
-      enableSorting: true,
-      sortingFn: (rowA, rowB) => {
-        const aMultiplier =
-          rowA.original.round_result ?? rowA.original.payout_multiplier ?? 0;
-        const bMultiplier =
-          rowB.original.round_result ?? rowB.original.payout_multiplier ?? 0;
-        return aMultiplier - bMultiplier;
-      },
-      filterFn: (row, _columnId, filterValue: [number, boolean]) => {
-        const multiplier =
-          row.original.round_result ?? row.original.payout_multiplier ?? 0;
-        const [min, showPinned] = filterValue;
-
-        if (showPinned && pinnedMultipliers.length > 0) {
-          const tolerance = 1e-9;
-          const isMatched = pinnedMultipliers.some(
-            (target) => Math.abs(multiplier - target) < tolerance
-          );
-          if (!isMatched) return false;
+        // Apply minimum amount filter
+        if (minValue !== undefined && amount < minValue) {
+          return false;
         }
 
-        if (min !== undefined && min !== null && multiplier < min) {
+        // Apply maximum amount filter
+        if (maxValue !== undefined && amount > maxValue) {
           return false;
         }
 
@@ -252,23 +185,75 @@ export const createColumns = (options: {
       },
     }),
 
+    // Multiplier column
+    columnHelper.accessor(
+      (row) => row.round_result ?? row.payout_multiplier ?? 0,
+      {
+        id: "multiplier",
+        header: () => (
+          <span className="flex items-center gap-1">
+            <TrendingUp className="h-3 w-3" />
+            Multiplier
+          </span>
+        ),
+        cell: ({ row }) => {
+          const bet = row.original;
+          const multiplier = bet.round_result ?? bet.payout_multiplier ?? 0;
+
+          return (
+            <Badge
+              variant={getMultiplierBadgeVariant(multiplier)}
+              className="font-mono text-xs"
+            >
+              {formatMultiplier(multiplier)}
+            </Badge>
+          );
+        },
+        enableSorting: true,
+        sortingFn: (rowA, rowB) => {
+          const aMultiplier =
+            rowA.original.round_result ?? rowA.original.payout_multiplier ?? 0;
+          const bMultiplier =
+            rowB.original.round_result ?? rowB.original.payout_multiplier ?? 0;
+          return aMultiplier - bMultiplier;
+        },
+        filterFn: (row, _columnId, filterValue: [number, boolean]) => {
+          const multiplier =
+            row.original.round_result ?? row.original.payout_multiplier ?? 0;
+          const [min, showPinned] = filterValue;
+
+          if (showPinned && pinnedMultipliers.length > 0) {
+            const tolerance = 1e-9;
+            const isMatched = pinnedMultipliers.some(
+              (target) => Math.abs(multiplier - target) < tolerance
+            );
+            if (!isMatched) return false;
+          }
+
+          if (min !== undefined && min !== null && multiplier < min) {
+            return false;
+          }
+
+          return true;
+        },
+      }
+    ),
+
     // Distance column (conditional)
     ...(showDistanceColumn
       ? [
           columnHelper.accessor("distance_prev_opt", {
             id: "distance",
-            header: ({ column }) => (
-              <SortableHeader column={column}>
-                <div className="flex items-center gap-1">
-                  <BarChart3 className="h-3 w-3" />
-                  Distance
-                </div>
-              </SortableHeader>
+            header: () => (
+              <span className="flex items-center gap-1">
+                <BarChart3 className="h-3 w-3" />
+                Distance
+              </span>
             ),
             cell: ({ getValue }) => {
               const distance = getValue();
               return (
-                <span className="font-mono text-sm">
+                <span className="font-mono text-sm tabular-nums">
                   {distance !== null && distance !== undefined
                     ? distance.toLocaleString()
                     : "—"}
@@ -282,20 +267,18 @@ export const createColumns = (options: {
 
     // Payout column
     columnHelper.accessor("payout", {
-      header: ({ column }) => (
-        <SortableHeader column={column}>Payout</SortableHeader>
-      ),
+      header: () => <span className="flex items-center">Payout</span>,
       cell: ({ getValue }) => (
-        <span className="font-mono text-sm">{formatAmount(getValue())}</span>
+        <span className="font-mono text-sm tabular-nums">
+          {formatAmount(getValue())}
+        </span>
       ),
       enableSorting: true,
     }),
 
     // Difficulty column
     columnHelper.accessor("difficulty", {
-      header: ({ column }) => (
-        <SortableHeader column={column}>Difficulty</SortableHeader>
-      ),
+      header: () => <span className="flex items-center">Difficulty</span>,
       cell: ({ getValue }) => (
         <Badge
           variant="outline"
@@ -313,7 +296,7 @@ export const createColumns = (options: {
     // Target/Result column
     columnHelper.accessor("round_target", {
       id: "target_result",
-      header: "Target/Result",
+      header: () => <span className="flex items-center">Target/Result</span>,
       cell: ({ row }) => {
         const bet = row.original;
         return (
