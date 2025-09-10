@@ -1,7 +1,7 @@
 /**
  * Analytics state hook for managing all incremental calculations.
  * Integrates multiplier tracking, distance calculations, alerts, and rolling statistics.
- * 
+ *
  * Requirements: 1.1, 1.2, 2.1, 2.2, 7.1, 7.2, 16.1, 16.2
  */
 
@@ -75,19 +75,19 @@ export interface AnalyticsState {
   // Live data
   bets: BetRecord[];
   lastId: number;
-  
+
   // KPI state
   kpis: LiveKPIs;
-  
+
   // Pinned multipliers
   pinnedMultipliers: Map<number, PinnedMultiplier>;
-  
+
   // Filters
   filters: DashboardFilters;
-  
+
   // Alert state
   recentAlerts: AlertEvent[];
-  
+
   // Rolling window stats
   rollingStats: {
     mean: number;
@@ -96,20 +96,20 @@ export interface AnalyticsState {
     count: number;
     deviationFromAllTime: number; // z-score
   };
-  
+
   // Top peaks tracking
   topPeaks: PeakRecord[];
-  
+
   // Density data
   densityData: {
     buckets: Map<number, number>;
     bucketSize: number;
     maxCount: number;
   };
-  
+
   // Distance tracking (client-side fallback)
   lastNonceByMultiplier: Map<number, number>;
-  
+
   // Stream metadata
   streamStartTime: Date | null;
   isLive: boolean;
@@ -174,8 +174,30 @@ export function useAnalyticsState(streamId: string) {
   // Reset state when stream changes
   useEffect(() => {
     // Load pinned multipliers from session storage for the new stream
-    const loadedPinnedMultipliers = loadPinnedMultipliers(streamId);
-    
+    const loaded = loadPinnedMultipliers(streamId);
+    const reconstructedPinnedMap = new Map<number, PinnedMultiplier>();
+    if (loaded && Array.isArray(loaded.multipliers)) {
+      for (const m of loaded.multipliers) {
+        reconstructedPinnedMap.set(m, {
+          multiplier: m,
+          tolerance: loaded.tolerance ?? 1e-9,
+          stats: {
+            count: 0,
+            lastNonce: 0,
+            lastGap: 0,
+            meanGap: 0,
+            stdGap: 0,
+            maxGap: 0,
+            p90Gap: 0,
+            p99Gap: 0,
+            ringBuffer: new RingBuffer<number>(50),
+            eta: { value: 0, model: 'observed' }
+          },
+          alerts: []
+        });
+      }
+    }
+
     setState(prevState => ({
       ...prevState,
       bets: [],
@@ -190,7 +212,7 @@ export function useAnalyticsState(streamId: string) {
         lastHitDistance: 0,
         streamDurationSeconds: 0
       },
-      pinnedMultipliers: loadedPinnedMultipliers,
+      pinnedMultipliers: reconstructedPinnedMap,
       recentAlerts: [],
       rollingStats: {
         mean: 0,
@@ -213,9 +235,9 @@ export function useAnalyticsState(streamId: string) {
     // Reset calculators
     const calculators = calculatorsRef.current;
     calculators.hitRateEMA.reset();
-    calculators.densityManager.clear();
-    calculators.alertEngine.clear();
-    calculators.rollingWindow.clear();
+    calculators.densityManager.reset();
+    calculators.alertEngine.reset();
+    calculators.rollingWindow.reset();
     calculators.allTimeMultiplierStats.reset();
   }, [streamId]);
 
@@ -227,7 +249,7 @@ export function useAnalyticsState(streamId: string) {
     if (filters.minMultiplier && bet.payout_multiplier < filters.minMultiplier) {
       return false;
     }
-    
+
     // Check pinned multipliers filter
     if (filters.showOnlyPinned) {
       const tolerance = 1e-9;
@@ -242,7 +264,7 @@ export function useAnalyticsState(streamId: string) {
         return false;
       }
     }
-    
+
     return true;
   }, []);
 
@@ -265,13 +287,13 @@ export function useAnalyticsState(streamId: string) {
 
     // Find highest multiplier
     const highestMultiplier = Math.max(...bets.map(bet => bet.payout_multiplier));
-    
+
     // Count hits
     const hitsCount = bets.length;
-    
+
     // Calculate hit rate
     const hitRate = streamDurationSeconds > 0 ? (hitsCount * 60) / streamDurationSeconds : 0;
-    
+
     // Find latest nonce and calculate gap
     const sortedByNonce = [...bets].sort((a, b) => b.nonce - a.nonce);
     const latestNonce = sortedByNonce[0]?.nonce || 0;
@@ -302,7 +324,7 @@ export function useAnalyticsState(streamId: string) {
     setState(prevState => {
       const updatedBets = [...prevState.bets, ...newBets];
       const newLastId = Math.max(...newBets.map(bet => bet.id));
-      
+
       // Update stream start time if this is the first data
       const streamStartTime = prevState.streamStartTime || now;
       const streamDurationSeconds = (now.getTime() - streamStartTime.getTime()) / 1000;
@@ -340,50 +362,52 @@ export function useAnalyticsState(streamId: string) {
         // Update pinned multiplier stats
         const tolerance = 1e-9;
         let pinnedMultipliersUpdated = false;
-        for (const [multiplier, pinnedData] of prevState.pinnedMultipliers) {
+        const pinnedMap = prevState.pinnedMultipliers instanceof Map ? prevState.pinnedMultipliers : new Map<number, PinnedMultiplier>();
+        for (const [multiplier, pinnedData] of pinnedMap) {
           if (Math.abs(bet.payout_multiplier - multiplier) <= tolerance) {
             const lastNonce = newLastNonceByMultiplier.get(multiplier) || 0;
             const gap = lastNonce > 0 ? bet.nonce - lastNonce : 0;
-            
+
             if (gap > 0) {
               pinnedData.stats.count++;
               pinnedData.stats.lastNonce = bet.nonce;
               pinnedData.stats.lastGap = gap;
               pinnedData.stats.ringBuffer.push(gap);
-              
+
               // Update Welford stats (would need to maintain separate calculators per multiplier)
               // For now, we'll approximate
               const prevMean = pinnedData.stats.meanGap;
               const count = pinnedData.stats.count;
               pinnedData.stats.meanGap = (prevMean * (count - 1) + gap) / count;
-              
+
               // Update standard deviation approximation
               const gaps = pinnedData.stats.ringBuffer.toArray();
               if (gaps.length > 1) {
                 const mean = gaps.reduce((sum, g) => sum + g, 0) / gaps.length;
                 const variance = gaps.reduce((sum, g) => sum + Math.pow(g - mean, 2), 0) / (gaps.length - 1);
                 pinnedData.stats.stdGap = Math.sqrt(variance);
-                
+
                 // Approximate p90 from ring buffer
                 const sortedGaps = [...gaps].sort((a, b) => a - b);
                 const p90Index = Math.floor(sortedGaps.length * 0.9);
                 pinnedData.stats.p90Gap = sortedGaps[p90Index] || 0;
               }
-              
+
               if (gap > pinnedData.stats.maxGap) {
                 pinnedData.stats.maxGap = gap;
               }
-              
+
               pinnedMultipliersUpdated = true;
             }
-            
+
             newLastNonceByMultiplier.set(multiplier, bet.nonce);
           }
         }
-        
+
         // Save updated pinned multipliers to session storage if any were updated
         if (pinnedMultipliersUpdated) {
-          savePinnedMultipliers(streamId, prevState.pinnedMultipliers);
+          const keys = Array.from(pinnedMap.keys());
+          savePinnedMultipliers(streamId, keys);
         }
 
         // Update top peaks (keep top 20)
@@ -394,7 +418,7 @@ export function useAnalyticsState(streamId: string) {
             timestamp: new Date(bet.date_time),
             id: bet.id
           });
-          
+
           // Sort and keep top 20
           newTopPeaks.sort((a, b) => b.multiplier - a.multiplier);
           if (newTopPeaks.length > 20) {
@@ -404,7 +428,7 @@ export function useAnalyticsState(streamId: string) {
 
         // Check alerts
         const multiplierStatsMap = new Map();
-        for (const [multiplier, pinnedData] of prevState.pinnedMultipliers) {
+        for (const [multiplier, pinnedData] of pinnedMap) {
           multiplierStatsMap.set(multiplier, {
             count: pinnedData.stats.count,
             lastGap: pinnedData.stats.lastGap,
@@ -413,7 +437,7 @@ export function useAnalyticsState(streamId: string) {
             p90Gap: pinnedData.stats.p90Gap
           });
         }
-        
+
         const alertsForBet = calculators.alertEngine.checkAlerts(bet, multiplierStatsMap);
         newAlerts.push(...alertsForBet);
 
@@ -431,8 +455,8 @@ export function useAnalyticsState(streamId: string) {
       let kpis: LiveKPIs;
       if (prevState.filters.applyFiltersToKPIs) {
         // Calculate KPIs from filtered data
-        const filteredBets = updatedBets.filter(bet => 
-          betPassesFilters(bet, prevState.filters, prevState.pinnedMultipliers)
+        const filteredBets = updatedBets.filter(bet =>
+          betPassesFilters(bet, prevState.filters, (prevState.pinnedMultipliers instanceof Map ? prevState.pinnedMultipliers : new Map()))
         );
         kpis = calculateKPIsFromBets(filteredBets, streamStartTime, streamDurationSeconds);
         // Update EMA with filtered hit rate
@@ -442,7 +466,7 @@ export function useAnalyticsState(streamId: string) {
         const allTimeHitsCount = prevState.kpis.hitsCount + newBets.length;
         const allTimeHitRate = streamDurationSeconds > 0 ? (allTimeHitsCount * 60) / streamDurationSeconds : 0;
         const hitRateEMA = calculators.hitRateEMA.update(allTimeHitRate);
-        
+
         kpis = {
           highestMultiplier: allTimeHighestMultiplier,
           hitsCount: allTimeHitsCount,
@@ -458,7 +482,7 @@ export function useAnalyticsState(streamId: string) {
       // Get rolling window stats
       const rollingWindowStats = calculators.rollingWindow.getStats();
       const allTimeStats = calculators.allTimeMultiplierStats.stats;
-      const deviationFromAllTime = allTimeStats.stddev > 0 ? 
+      const deviationFromAllTime = allTimeStats.stddev > 0 ?
         (rollingWindowStats.mean - allTimeStats.mean) / allTimeStats.stddev : 0;
 
       return {
@@ -476,9 +500,9 @@ export function useAnalyticsState(streamId: string) {
         },
         topPeaks: newTopPeaks,
         densityData: {
-          buckets: calculators.densityManager.getBuckets(),
-          bucketSize: calculators.densityManager.getBucketSize(),
-          maxCount: calculators.densityManager.getMaxCount()
+          buckets: calculators.densityManager.getDensityData().buckets,
+          bucketSize: calculators.densityManager.currentBucketSize,
+          maxCount: calculators.densityManager.currentMaxCount
         },
         lastNonceByMultiplier: newLastNonceByMultiplier,
         streamStartTime,
@@ -493,7 +517,7 @@ export function useAnalyticsState(streamId: string) {
   const pinMultiplier = useCallback((multiplier: number) => {
     setState(prevState => {
       const newPinnedMultipliers = new Map(prevState.pinnedMultipliers);
-      
+
       if (!newPinnedMultipliers.has(multiplier)) {
         newPinnedMultipliers.set(multiplier, {
           multiplier,
@@ -515,11 +539,11 @@ export function useAnalyticsState(streamId: string) {
           },
           alerts: []
         });
-        
+
         // Save to session storage
-        savePinnedMultipliers(streamId, newPinnedMultipliers);
+        savePinnedMultipliers(streamId, Array.from(newPinnedMultipliers.keys()));
       }
-      
+
       return {
         ...prevState,
         pinnedMultipliers: newPinnedMultipliers
@@ -534,10 +558,10 @@ export function useAnalyticsState(streamId: string) {
     setState(prevState => {
       const newPinnedMultipliers = new Map(prevState.pinnedMultipliers);
       newPinnedMultipliers.delete(multiplier);
-      
+
       // Save to session storage
-      savePinnedMultipliers(streamId, newPinnedMultipliers);
-      
+      savePinnedMultipliers(streamId, Array.from(newPinnedMultipliers.keys()));
+
       return {
         ...prevState,
         pinnedMultipliers: newPinnedMultipliers
@@ -558,23 +582,23 @@ export function useAnalyticsState(streamId: string) {
   const updateFilters = useCallback((filters: Partial<DashboardFilters>) => {
     setState(prevState => {
       const newFilters = { ...prevState.filters, ...filters };
-      
+
       // If applyFiltersToKPIs changed or other filter settings changed while applyFiltersToKPIs is true,
       // recalculate KPIs
       let newKpis = prevState.kpis;
-      if (newFilters.applyFiltersToKPIs !== prevState.filters.applyFiltersToKPIs || 
+      if (newFilters.applyFiltersToKPIs !== prevState.filters.applyFiltersToKPIs ||
           (newFilters.applyFiltersToKPIs && (
             newFilters.minMultiplier !== prevState.filters.minMultiplier ||
             newFilters.showOnlyPinned !== prevState.filters.showOnlyPinned
           ))) {
-        
-        const streamDurationSeconds = prevState.streamStartTime 
-          ? (Date.now() - prevState.streamStartTime.getTime()) / 1000 
+
+        const streamDurationSeconds = prevState.streamStartTime
+          ? (Date.now() - prevState.streamStartTime.getTime()) / 1000
           : 0;
 
         if (newFilters.applyFiltersToKPIs) {
           // Recalculate KPIs from filtered data
-          const filteredBets = prevState.bets.filter(bet => 
+          const filteredBets = prevState.bets.filter(bet =>
             betPassesFilters(bet, newFilters, prevState.pinnedMultipliers)
           );
           newKpis = calculateKPIsFromBets(filteredBets, prevState.streamStartTime, streamDurationSeconds);
@@ -587,7 +611,7 @@ export function useAnalyticsState(streamId: string) {
           newKpis.hitRateEMA = prevState.kpis.hitRateEMA;
         }
       }
-      
+
       return {
         ...prevState,
         filters: newFilters,

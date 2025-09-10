@@ -1,31 +1,31 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { 
-  useEnhancedStreamDetail, 
-  useEnhancedStreamBets, 
-  useEnhancedDeleteStream, 
-  useEnhancedUpdateStream 
+import {
+  useEnhancedStreamDetail,
+  useEnhancedStreamBets,
+  useEnhancedDeleteStream,
+  useEnhancedUpdateStream,
 } from "@/hooks/useEnhancedLiveStreams";
+import { useRealTimeBets } from "@/hooks/useStreamTail";
+import { useAnalyticsState } from "@/hooks/useAnalyticsState";
 import { liveStreamsApi } from "../lib/api";
-import type { BetRecord, TailResponse } from "../lib/api";
-import { DistanceCalculator, formatDistance } from "../lib/distanceCalculator";
 import Breadcrumb from "../components/Breadcrumb";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import { showSuccessToast, showErrorToast } from "../lib/errorHandling";
-import { 
-  ArrowLeft, 
-  Download, 
-  Trash2, 
-  Edit3, 
-  Save, 
-  X, 
-  Activity, 
+import {
+  ArrowLeft,
+  Download,
+  Trash2,
+  Edit3,
+  Save,
+  X,
+  Activity,
   Hash,
   Key,
   Clock,
   BarChart3,
   Filter,
-  RefreshCw
+  RefreshCw,
 } from "lucide-react";
 
 // ShadCN Components
@@ -74,33 +74,45 @@ import { Skeleton } from "@/components/ui/skeleton";
 const LiveStreamDetail = () => {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  
+
   // State for editing notes
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [notesValue, setNotesValue] = useState("");
-  
+
   // State for bet filtering
   const [minMultiplier, setMinMultiplier] = useState<number | undefined>();
   const [orderBy, setOrderBy] = useState<"nonce_asc" | "id_desc">("id_desc");
-  
-  // State for real-time updates
-  const [bets, setBets] = useState<BetRecord[]>([]);
-  const [lastId, setLastId] = useState<number>(0);
-  const [newBetsCount, setNewBetsCount] = useState<number>(0);
+
+  // State for UI controls only
   const [isPolling, setIsPolling] = useState(true);
   const [highFrequencyMode, setHighFrequencyMode] = useState(true); // Default to high frequency for betting
-  const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
-  
-  // Distance calculator for client-side fallback
-  const distanceCalculatorRef = useRef<DistanceCalculator>(new DistanceCalculator());
-  
-  // Hooks
-  const { data: streamDetail, isLoading: streamLoading, error: streamError, refetch: refetchStream } = useEnhancedStreamDetail(id!);
-  const { data: initialBetsData, isLoading: betsLoading, refetch: refetchBets } = useEnhancedStreamBets(id!, {
-    // Remove server-side filtering - we'll do it client-side for consistency with real-time updates
-    order: orderBy,
-    limit: 1000
-  });
+
+  // Fetch initial bets data
+  const { data: initialBetsData, isLoading: betsLoading } =
+    useEnhancedStreamBets(id!, {
+      order: "id_desc",
+      limit: 100, // Get recent bets to establish lastId
+    });
+
+  // Analytics state hook for processing incoming bets
+  const { updateFromTail } = useAnalyticsState(id!);
+
+  // Hooks - pass initial bets to establish proper lastId
+  const realTimeBets = useRealTimeBets(id!, initialBetsData?.bets || []);
+
+  // Update analytics when new bets arrive
+  useEffect(() => {
+    if (realTimeBets.newBets.length > 0) {
+      updateFromTail(realTimeBets.newBets);
+    }
+  }, [realTimeBets.newBets, updateFromTail]);
+
+  const {
+    data: streamDetail,
+    isLoading: streamLoading,
+    error: streamError,
+    refetch: refetchStream,
+  } = useEnhancedStreamDetail(id!);
   const deleteStreamMutation = useEnhancedDeleteStream();
   const updateStreamMutation = useEnhancedUpdateStream();
 
@@ -111,82 +123,14 @@ const LiveStreamDetail = () => {
     }
   }, [streamDetail, isEditingNotes]);
 
-  // Initialize bets and set up polling
-  useEffect(() => {
-    // console.log('LiveStreamDetail: initialBetsData changed', {
-    //   hasData: !!initialBetsData,
-    //   betsCount: initialBetsData?.bets?.length || 0,
-    //   total: initialBetsData?.total
-    // });
-    
-    if (initialBetsData?.bets) {
-      setBets(initialBetsData.bets);
-      // Set lastId to the highest ID for tail polling
-      const maxId = Math.max(...initialBetsData.bets.map(bet => bet.id), 0);
-      setLastId(maxId);
-    }
-  }, [initialBetsData]);
-
-  // Refetch when order changes (since we use server-side sorting)
-  useEffect(() => {
-    refetchBets();
-  }, [orderBy, refetchBets]);
-
-  // Polling for real-time updates
-  useEffect(() => {
-    if (!id || !isPolling || lastId === 0) return;
-
-    const pollForUpdates = async () => {
-      try {
-        const response = await liveStreamsApi.tail(id, lastId, true); // Request distance calculations
-        const tailData: TailResponse = response.data;
-        
-        if (tailData.bets.length > 0) {
-          setBets(prevBets => [...prevBets, ...tailData.bets]);
-          // Update lastId to the highest ID from the new bets
-          const newMaxId = Math.max(...tailData.bets.map(bet => bet.id));
-          setLastId(newMaxId);
-          // Update new bets counter
-          setNewBetsCount(prev => prev + tailData.bets.length);
-        }
-      } catch (error: any) {
-        console.error("Polling error:", error);
-        // Show warning for polling errors but continue polling
-        if (error?.response?.status >= 500) {
-          showErrorToast(error, "Connection issues detected. Retrying...");
-        }
-      }
-    };
-
-    // Start polling immediately
-    pollForUpdates();
-    const interval = highFrequencyMode ? 500 : 2000; // 0.5s for high frequency, 2s for normal
-    pollingIntervalRef.current = setInterval(pollForUpdates, interval);
-
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
-    };
-  }, [id, lastId, isPolling, highFrequencyMode]);
-
-  // Cleanup polling on unmount
-  useEffect(() => {
-    return () => {
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
-      }
-    };
-  }, []);
-
   // Handle delete stream
   const handleDeleteStream = async () => {
     if (!id) return;
-    
+
     try {
       await deleteStreamMutation.mutateAsync(id);
       navigate("/live");
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to delete stream:", error);
       // Error handling is now done in the mutation hook
     }
@@ -195,14 +139,14 @@ const LiveStreamDetail = () => {
   // Handle save notes
   const handleSaveNotes = async () => {
     if (!id) return;
-    
+
     try {
       await updateStreamMutation.mutateAsync({
         id,
-        data: { notes: notesValue.trim() || undefined }
+        data: { notes: notesValue.trim() || undefined },
       });
       setIsEditingNotes(false);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Failed to update notes:", error);
       // Error handling is now done in the mutation hook
     }
@@ -233,21 +177,26 @@ const LiveStreamDetail = () => {
   // Get difficulty badge color
   const getDifficultyColor = (difficulty: string) => {
     switch (difficulty) {
-      case "easy": return "bg-green-600";
-      case "medium": return "bg-yellow-600";
-      case "hard": return "bg-orange-600";
-      case "expert": return "bg-red-600";
-      default: return "bg-gray-600";
+      case "easy":
+        return "bg-green-600";
+      case "medium":
+        return "bg-yellow-600";
+      case "hard":
+        return "bg-orange-600";
+      case "expert":
+        return "bg-red-600";
+      default:
+        return "bg-gray-600";
     }
   };
 
   // Filter bets based on minMultiplier (using round_result instead of payout_multiplier)
-  const filteredBets = minMultiplier 
-    ? bets.filter(bet => {
+  const filteredBets = minMultiplier
+    ? realTimeBets.bets.filter((bet) => {
         const multiplier = bet.round_result;
         return multiplier != null && multiplier >= minMultiplier;
       })
-    : bets;
+    : realTimeBets.bets;
 
   // Sort bets based on orderBy
   const sortedBets = [...filteredBets].sort((a, b) => {
@@ -259,12 +208,12 @@ const LiveStreamDetail = () => {
   });
 
   // Debug logging (remove in production)
-  if (process.env.NODE_ENV === 'development' && bets.length > 0) {
-    console.log('LiveStreamDetail:', {
-      totalBets: bets.length,
+  if (process.env.NODE_ENV === "development" && realTimeBets.bets.length > 0) {
+    console.log("LiveStreamDetail:", {
+      totalBets: realTimeBets.bets.length,
       filteredBets: filteredBets.length,
       sortedBets: sortedBets.length,
-      minMultiplier
+      minMultiplier,
     });
   }
 
@@ -277,7 +226,9 @@ const LiveStreamDetail = () => {
             <CardTitle className="text-red-400">Invalid Stream ID</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-red-300 mb-4">Stream ID is required to view stream details.</p>
+            <p className="text-red-300 mb-4">
+              Stream ID is required to view stream details.
+            </p>
             <Button variant="outline" asChild>
               <Link to="/live">
                 <ArrowLeft className="w-4 h-4 mr-2" />
@@ -291,16 +242,21 @@ const LiveStreamDetail = () => {
   }
 
   // Additional validation for UUID format (basic check)
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const uuidRegex =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
   if (!uuidRegex.test(id)) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
         <Card className="bg-red-900/20 border-red-500/50 max-w-md mx-auto">
           <CardHeader>
-            <CardTitle className="text-red-400">Invalid Stream ID Format</CardTitle>
+            <CardTitle className="text-red-400">
+              Invalid Stream ID Format
+            </CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-red-300 mb-4">The provided stream ID is not in a valid format.</p>
+            <p className="text-red-300 mb-4">
+              The provided stream ID is not in a valid format.
+            </p>
             <Button variant="outline" asChild>
               <Link to="/live">
                 <ArrowLeft className="w-4 h-4 mr-2" />
@@ -313,7 +269,7 @@ const LiveStreamDetail = () => {
     );
   }
 
-  if (streamLoading) {
+  if (streamLoading || betsLoading) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgba(59,130,246,0.1),transparent_70%)]" />
@@ -339,7 +295,8 @@ const LiveStreamDetail = () => {
             </CardHeader>
             <CardContent>
               <p className="text-red-300 mb-4">
-                {streamError?.message || "The requested stream could not be found."}
+                {streamError?.message ||
+                  "The requested stream could not be found."}
               </p>
               <Button variant="outline" asChild>
                 <Link to="/live">
@@ -362,18 +319,24 @@ const LiveStreamDetail = () => {
 
       <div className="relative z-10 container mx-auto px-4 py-12 max-w-7xl space-y-8">
         {/* Breadcrumb Navigation */}
-        <Breadcrumb 
+        <Breadcrumb
           items={[
             { label: "Live", href: "/live" },
-            { label: streamDetail ? `${streamDetail.server_seed_hashed.substring(0, 10)}...` : "Stream Detail" }
-          ]} 
+            {
+              label: streamDetail
+                ? `${streamDetail.server_seed_hashed.substring(0, 10)}...`
+                : "Stream Detail",
+            },
+          ]}
         />
 
         {/* Offline Indicator */}
-        <OfflineIndicator onRetry={() => {
-          refetchStream();
-          refetchBets();
-        }} />
+        <OfflineIndicator
+          onRetry={() => {
+            refetchStream();
+            // Note: Bets are handled by useRealTimeBets hook
+          }}
+        />
 
         {/* Header */}
         <div className="flex items-center gap-2">
@@ -394,25 +357,33 @@ const LiveStreamDetail = () => {
                   <div className="w-2 h-2 rounded-full bg-green-400 animate-pulse"></div>
                   <span className="text-sm">Live</span>
                   {highFrequencyMode && (
-                    <span className="text-xs bg-green-600 px-1 rounded">HF</span>
+                    <span className="text-xs bg-green-600 px-1 rounded">
+                      HF
+                    </span>
                   )}
                 </div>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setHighFrequencyMode(!highFrequencyMode)}
-                  className={highFrequencyMode ? 'bg-blue-600/20 border-blue-500' : ''}
+                  className={
+                    highFrequencyMode ? "bg-blue-600/20 border-blue-500" : ""
+                  }
                 >
                   <Activity className="w-4 h-4 mr-2" />
-                  {highFrequencyMode ? '0.5s' : '2s'}
+                  {highFrequencyMode ? "0.5s" : "2s"}
                 </Button>
                 <Button
                   variant="outline"
                   size="sm"
                   onClick={() => setIsPolling(!isPolling)}
                 >
-                  <RefreshCw className={`w-4 h-4 mr-2 ${isPolling ? 'animate-spin' : ''}`} />
-                  {isPolling ? 'Pause' : 'Resume'}
+                  <RefreshCw
+                    className={`w-4 h-4 mr-2 ${
+                      isPolling ? "animate-spin" : ""
+                    }`}
+                  />
+                  {isPolling ? "Pause" : "Resume"}
                 </Button>
               </div>
             </div>
@@ -426,7 +397,9 @@ const LiveStreamDetail = () => {
                   Server Seed Hash
                 </Label>
                 <div className="font-mono text-sm bg-slate-900/50 p-3 rounded border border-slate-700">
-                  <span className="text-slate-300">{formatSeedPrefix(streamDetail.server_seed_hashed)}</span>
+                  <span className="text-slate-300">
+                    {formatSeedPrefix(streamDetail.server_seed_hashed)}
+                  </span>
                 </div>
               </div>
               <div className="space-y-2">
@@ -435,7 +408,9 @@ const LiveStreamDetail = () => {
                   Client Seed
                 </Label>
                 <div className="font-mono text-sm bg-slate-900/50 p-3 rounded border border-slate-700">
-                  <span className="text-slate-300">{streamDetail.client_seed}</span>
+                  <span className="text-slate-300">
+                    {streamDetail.client_seed}
+                  </span>
                 </div>
               </div>
             </div>
@@ -443,19 +418,27 @@ const LiveStreamDetail = () => {
             {/* Statistics */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className="text-center p-4 bg-slate-900/30 rounded-lg border border-slate-700">
-                <div className="text-2xl font-bold text-white">{streamDetail.total_bets.toLocaleString()}</div>
+                <div className="text-2xl font-bold text-white">
+                  {streamDetail.total_bets.toLocaleString()}
+                </div>
                 <div className="text-sm text-slate-400">Total Bets</div>
               </div>
               <div className="text-center p-4 bg-slate-900/30 rounded-lg border border-slate-700">
-                <div className="text-2xl font-bold text-yellow-400">{streamDetail.highest_multiplier?.toFixed(2) || '0.00'}x</div>
+                <div className="text-2xl font-bold text-yellow-400">
+                  {streamDetail.highest_multiplier?.toFixed(2) || "0.00"}x
+                </div>
                 <div className="text-sm text-slate-400">Highest Multiplier</div>
               </div>
               <div className="text-center p-4 bg-slate-900/30 rounded-lg border border-slate-700">
-                <div className="text-2xl font-bold text-blue-400">{formatTimestamp(streamDetail.created_at).split(',')[0]}</div>
+                <div className="text-2xl font-bold text-blue-400">
+                  {formatTimestamp(streamDetail.created_at).split(",")[0]}
+                </div>
                 <div className="text-sm text-slate-400">Created</div>
               </div>
               <div className="text-center p-4 bg-slate-900/30 rounded-lg border border-slate-700">
-                <div className="text-2xl font-bold text-green-400">{formatTimestamp(streamDetail.last_seen_at).split(',')[1]}</div>
+                <div className="text-2xl font-bold text-green-400">
+                  {formatTimestamp(streamDetail.last_seen_at).split(",")[1]}
+                </div>
                 <div className="text-sm text-slate-400">Last Seen</div>
               </div>
             </div>
@@ -525,7 +508,7 @@ const LiveStreamDetail = () => {
                 <Download className="w-4 h-4" />
                 Export CSV
               </Button>
-              
+
               <AlertDialog>
                 <AlertDialogTrigger asChild>
                   <Button
@@ -538,10 +521,12 @@ const LiveStreamDetail = () => {
                 </AlertDialogTrigger>
                 <AlertDialogContent className="bg-slate-800 border-slate-700">
                   <AlertDialogHeader>
-                    <AlertDialogTitle className="text-white">Delete Stream</AlertDialogTitle>
+                    <AlertDialogTitle className="text-white">
+                      Delete Stream
+                    </AlertDialogTitle>
                     <AlertDialogDescription className="text-slate-300">
-                      This will permanently delete the stream and all associated bet data. 
-                      This action cannot be undone.
+                      This will permanently delete the stream and all associated
+                      bet data. This action cannot be undone.
                     </AlertDialogDescription>
                   </AlertDialogHeader>
                   <AlertDialogFooter>
@@ -553,7 +538,9 @@ const LiveStreamDetail = () => {
                       className="bg-red-600 hover:bg-red-700"
                       disabled={deleteStreamMutation.isPending}
                     >
-                      {deleteStreamMutation.isPending ? "Deleting..." : "Delete"}
+                      {deleteStreamMutation.isPending
+                        ? "Deleting..."
+                        : "Delete"}
                     </AlertDialogAction>
                   </AlertDialogFooter>
                 </AlertDialogContent>
@@ -561,8 +548,8 @@ const LiveStreamDetail = () => {
             </div>
           </CardContent>
         </Card>
-   
-     {/* Bet Filters and Controls */}
+
+        {/* Bet Filters and Controls */}
         <Card className="bg-slate-800/50 backdrop-blur-xl border-slate-700/50 shadow-2xl">
           <CardHeader>
             <CardTitle className="text-white flex items-center gap-2">
@@ -588,8 +575,8 @@ const LiveStreamDetail = () => {
                     }
                   }}
                   className={`w-32 ${
-                    minMultiplier 
-                      ? "bg-blue-900/30 border-blue-500 text-blue-300" 
+                    minMultiplier
+                      ? "bg-blue-900/30 border-blue-500 text-blue-300"
                       : "bg-slate-900/50 border-slate-700 text-slate-300"
                   }`}
                   min="0"
@@ -598,13 +585,22 @@ const LiveStreamDetail = () => {
               </div>
               <div className="space-y-2">
                 <Label className="text-slate-300">Order By</Label>
-                <Select value={orderBy} onValueChange={(value: "nonce_asc" | "id_desc") => setOrderBy(value)}>
+                <Select
+                  value={orderBy}
+                  onValueChange={(value: "nonce_asc" | "id_desc") =>
+                    setOrderBy(value)
+                  }
+                >
                   <SelectTrigger className="bg-slate-900/50 border-slate-700 text-slate-300 w-40">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent className="bg-slate-800 border-slate-700">
-                    <SelectItem value="nonce_asc" className="text-slate-300">Nonce (Asc)</SelectItem>
-                    <SelectItem value="id_desc" className="text-slate-300">Latest First</SelectItem>
+                    <SelectItem value="nonce_asc" className="text-slate-300">
+                      Nonce (Asc)
+                    </SelectItem>
+                    <SelectItem value="id_desc" className="text-slate-300">
+                      Latest First
+                    </SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -627,7 +623,8 @@ const LiveStreamDetail = () => {
               </Button>
             </div>
             <div className="mt-4 text-sm text-slate-400">
-              Showing {sortedBets.length.toLocaleString()} of {bets.length.toLocaleString()} bets
+              Showing {sortedBets.length.toLocaleString()} of{" "}
+              {realTimeBets.bets.length.toLocaleString()} bets
               {minMultiplier && ` (≥${minMultiplier}x multiplier)`}
             </div>
           </CardContent>
@@ -644,11 +641,14 @@ const LiveStreamDetail = () => {
               <div className="flex items-center gap-2 text-slate-400">
                 <Clock className="w-4 h-4" />
                 <span className="text-sm">
-                  Updates every {highFrequencyMode ? '0.5' : '2'} seconds
+                  Updates every {highFrequencyMode ? "0.5" : "2"} seconds
                 </span>
-                {newBetsCount > 0 && (
-                  <Badge variant="outline" className="border-green-500 text-green-400">
-                    +{newBetsCount} new
+                {realTimeBets.newBetsCount > 0 && (
+                  <Badge
+                    variant="outline"
+                    className="border-green-500 text-green-400"
+                  >
+                    +{realTimeBets.newBetsCount} new
                   </Badge>
                 )}
               </div>
@@ -658,21 +658,23 @@ const LiveStreamDetail = () => {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {betsLoading ? (
+            {(realTimeBets.bets.length === 0 && realTimeBets.isPolling) ||
+            betsLoading ? (
               <div className="space-y-3">
                 {[...Array(5)].map((_, i) => (
                   <Skeleton key={i} className="h-12 w-full bg-slate-700" />
                 ))}
               </div>
-            ) : sortedBets.length === 0 ? (
+            ) : realTimeBets.bets.length === 0 ? (
               <div className="text-center py-12">
                 <Activity className="w-16 h-16 text-slate-600 mx-auto mb-4" />
                 <p className="text-slate-400 text-lg mb-2">No bets found</p>
                 <p className="text-slate-500 text-sm">
-                  {minMultiplier 
+                  {minMultiplier
                     ? `No bets found with multiplier ≥${minMultiplier}x`
-                    : "Bets will appear here as they are received"
-                  }
+                    : realTimeBets.isRealTimeActive
+                    ? "Waiting for new bets..."
+                    : "Bets will appear here as they are received"}
                 </p>
               </div>
             ) : (
@@ -681,38 +683,43 @@ const LiveStreamDetail = () => {
                   <TableHeader>
                     <TableRow className="border-slate-700">
                       <TableHead className="text-slate-300">Nonce</TableHead>
-                      <TableHead className="text-slate-300">Date/Time</TableHead>
+                      <TableHead className="text-slate-300">
+                        Date/Time
+                      </TableHead>
                       <TableHead className="text-slate-300">Amount</TableHead>
-                      <TableHead className="text-slate-300">Multiplier</TableHead>
+                      <TableHead className="text-slate-300">
+                        Multiplier
+                      </TableHead>
                       <TableHead className="text-slate-300">Payout</TableHead>
-                      <TableHead className="text-slate-300">Difficulty</TableHead>
+                      <TableHead className="text-slate-300">
+                        Difficulty
+                      </TableHead>
                       <TableHead className="text-slate-300">Target</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {sortedBets.map((bet) => (
-                      <TableRow 
-                        key={bet.id} 
+                      <TableRow
+                        key={bet.id}
                         className="border-slate-700 hover:bg-slate-700/30 transition-colors"
                       >
                         <TableCell className="font-mono text-slate-300">
                           {bet.nonce.toLocaleString()}
                         </TableCell>
                         <TableCell className="text-slate-400 text-sm">
-                          {bet.date_time 
+                          {bet.date_time
                             ? formatTimestamp(bet.date_time)
-                            : formatTimestamp(bet.received_at)
-                          }
+                            : formatTimestamp(bet.received_at)}
                         </TableCell>
                         <TableCell className="font-mono text-slate-300">
                           {bet.amount.toFixed(8)}
                         </TableCell>
                         <TableCell>
-                          <Badge 
-                            variant="outline" 
+                          <Badge
+                            variant="outline"
                             className={`${
-                              (bet.round_result || 0) >= 1000 
-                                ? "border-yellow-500/50 text-yellow-400" 
+                              (bet.round_result || 0) >= 1000
+                                ? "border-yellow-500/50 text-yellow-400"
                                 : (bet.round_result || 0) >= 100
                                 ? "border-orange-500/50 text-orange-400"
                                 : (bet.round_result || 0) >= 10
@@ -720,7 +727,7 @@ const LiveStreamDetail = () => {
                                 : "border-slate-500/50 text-slate-400"
                             }`}
                           >
-                            {bet.round_result?.toFixed(2) || '0.00'}x
+                            {bet.round_result?.toFixed(2) || "0.00"}x
                           </Badge>
                         </TableCell>
                         {/* Distance column temporarily removed */}
@@ -728,8 +735,10 @@ const LiveStreamDetail = () => {
                           {bet.payout.toFixed(8)}
                         </TableCell>
                         <TableCell>
-                          <Badge 
-                            className={`${getDifficultyColor(bet.difficulty)} text-white`}
+                          <Badge
+                            className={`${getDifficultyColor(
+                              bet.difficulty
+                            )} text-white`}
                           >
                             {bet.difficulty}
                           </Badge>
