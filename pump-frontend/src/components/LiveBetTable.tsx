@@ -1,10 +1,4 @@
-import React, {
-  useState,
-  useMemo,
-  useCallback,
-  useRef,
-  useEffect,
-} from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import {
   Table,
   TableBody,
@@ -13,7 +7,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -25,52 +18,48 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
-import {
-  ArrowUpDown,
-  ArrowUp,
-  ArrowDown,
-  Filter,
-  TrendingUp,
-  Star,
-  StarOff,
-  BarChart3,
-  RotateCcw,
-} from "lucide-react";
+import { Filter, RotateCcw } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { BetRecord } from "@/lib/api";
+import {
+  useReactTable,
+  getCoreRowModel,
+  getSortedRowModel,
+  getFilteredRowModel,
+  flexRender,
+  SortingState,
+  ColumnFiltersState,
+} from "@tanstack/react-table";
+import { createColumns } from "./live-streams/columns";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 // Helper: shallow compare BetFilters to avoid unnecessary state updates
-function arraysEqual(a?: number[], b?: number[]) {
-  if (a === b) return true;
-  if (!a && !b) return true;
-  if (!a || !b) return false;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
-
-function filtersShallowEqual(a: BetFilters, b: BetFilters) {
-  return (
-    a.minMultiplier === b.minMultiplier &&
-    a.difficulty === b.difficulty &&
-    a.minAmount === b.minAmount &&
-    a.maxAmount === b.maxAmount &&
-    a.showOnlyPinned === b.showOnlyPinned &&
-    arraysEqual(a.pinnedMultipliers, b.pinnedMultipliers)
-  );
-}
+// function arraysEqual(a?: number[], b?: number[]) {
+//   if (a === b) return true;
+//   if (!a && !b) return true;
+//   if (!a || !b) return false;
+//   if (a.length !== b.length) return false;
+//   for (let i = 0; i < a.length; i += 1) {
+//     if (a[i] !== b[i]) return false;
+//   }
+//   return true;
+// }
+//
+// function filtersShallowEqual(a: BetFilters, b: BetFilters) {
+//   return (
+//     a.minMultiplier === b.minMultiplier &&
+//     a.difficulty === b.difficulty &&
+//     a.minAmount === b.minAmount &&
+//     a.maxAmount === b.maxAmount &&
+//     a.showOnlyPinned === b.showOnlyPinned &&
+//     arraysEqual(a.pinnedMultipliers, b.pinnedMultipliers)
+//   );
+// }
 
 interface LiveBetTableProps {
   bets: BetRecord[];
   isLoading?: boolean;
   isError?: boolean;
-  onSort?: (field: SortField, direction: SortDirection) => void;
-  onFilter?: (filters: BetFilters) => void;
-  sortField?: SortField;
-  sortDirection?: SortDirection;
-  filters?: BetFilters;
   showVirtualScrolling?: boolean;
   maxHeight?: string;
   onBetClick?: (bet: BetRecord) => void;
@@ -106,19 +95,6 @@ export interface BetFilters {
   pinnedMultipliers?: number[];
 }
 
-const DIFFICULTY_COLORS = {
-  easy: "bg-green-100 text-green-800 dark:bg-green-900/20 dark:text-green-400",
-  medium: "bg-blue-100 text-blue-800 dark:bg-blue-900/20 dark:text-blue-400",
-  hard: "bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400",
-  expert: "bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400",
-} as const;
-
-const MULTIPLIER_THRESHOLDS = {
-  high: 1000,
-  extreme: 10000,
-  legendary: 100000,
-} as const;
-
 /**
  * Sortable, filterable table for bet records with real-time updates
  * Supports virtual scrolling for performance with large datasets
@@ -129,41 +105,28 @@ function LiveBetTable({
   bets,
   isLoading = false,
   isError = false,
-  onSort,
-  onFilter,
-  sortField = "nonce",
-  sortDirection = "desc",
-  filters = {},
   showVirtualScrolling = false,
   maxHeight = "600px",
   onBetClick,
-  highlightNewBets = false,
-  newBetIds = new Set(),
   className,
 
   // Enhanced features
   showDistanceColumn = false,
   distanceColumn = false,
   pinnedMultipliers = [],
-  highlightMultiplier,
   showBookmarks = false,
   onBookmark,
 }: LiveBetTableProps) {
-  const [localFilters, setLocalFilters] = useState<BetFilters>(filters);
-  const [filterInputs, setFilterInputs] = useState({
-    minMultiplier: filters.minMultiplier?.toString() || "",
-    minAmount: filters.minAmount?.toString() || "",
-    maxAmount: filters.maxAmount?.toString() || "",
-  });
+  const [sorting, setSorting] = useState<SortingState>([
+    { id: "nonce", desc: true },
+  ]);
+  const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
 
   // Calculate if distance column should be shown
   const shouldShowDistance = showDistanceColumn || distanceColumn;
 
   // Calculate if pinned multipliers filter should be shown
   const shouldShowPinnedFilter = pinnedMultipliers.length > 0;
-
-  const tableRef = useRef<HTMLDivElement>(null);
-  const [visibleRange, setVisibleRange] = useState({ start: 0, end: 50 });
 
   // Client-side distance calculation
   const betsWithDistance = useMemo(() => {
@@ -195,135 +158,6 @@ function LiveBetTable({
     });
   }, [bets, shouldShowDistance]);
 
-  // Apply filters locally if no external filter handler
-  const filteredBets = useMemo(() => {
-    if (!betsWithDistance) return [];
-
-    return betsWithDistance.filter((bet) => {
-      if (
-        localFilters.minMultiplier &&
-        (bet.round_result ?? bet.payout_multiplier ?? 0) <
-          localFilters.minMultiplier
-      ) {
-        return false;
-      }
-      if (
-        localFilters.difficulty &&
-        bet.difficulty !== localFilters.difficulty
-      ) {
-        return false;
-      }
-      if (localFilters.minAmount && bet.amount < localFilters.minAmount) {
-        return false;
-      }
-      if (localFilters.maxAmount && bet.amount > localFilters.maxAmount) {
-        return false;
-      }
-
-      // Filter by pinned multipliers if enabled
-      if (localFilters.showOnlyPinned && pinnedMultipliers.length > 0) {
-        const multiplier = bet.round_result ?? bet.payout_multiplier ?? 0;
-        const tolerance = 1e-9;
-        const isMatched = pinnedMultipliers.some(
-          (target) => Math.abs(multiplier - target) < tolerance
-        );
-        if (!isMatched) return false;
-      }
-
-      return true;
-    });
-  }, [betsWithDistance, localFilters, pinnedMultipliers]);
-
-  // Sort bets locally if no external sort handler
-  const sortedBets = useMemo(() => {
-    if (!filteredBets) return [];
-
-    const sorted = [...filteredBets].sort((a, b) => {
-      let aValue: any = a[sortField];
-      let bValue: any = b[sortField];
-
-      // Handle date sorting
-      if (sortField === "date_time") {
-        aValue = new Date(a.date_time || a.received_at).getTime();
-        bValue = new Date(b.date_time || b.received_at).getTime();
-      }
-
-      // Handle numeric sorting
-      if (typeof aValue === "number" && typeof bValue === "number") {
-        return sortDirection === "asc" ? aValue - bValue : bValue - aValue;
-      }
-
-      // Handle string sorting
-      const aStr = String(aValue).toLowerCase();
-      const bStr = String(bValue).toLowerCase();
-
-      if (sortDirection === "asc") {
-        return aStr < bStr ? -1 : aStr > bStr ? 1 : 0;
-      } else {
-        return aStr > bStr ? -1 : aStr < bStr ? 1 : 0;
-      }
-    });
-
-    return sorted;
-  }, [filteredBets, sortField, sortDirection]);
-
-  // Virtual scrolling logic
-  const visibleBets = useMemo(() => {
-    if (!showVirtualScrolling) return sortedBets;
-    return sortedBets.slice(visibleRange.start, visibleRange.end);
-  }, [sortedBets, showVirtualScrolling, visibleRange]);
-
-  // Handle scroll for virtual scrolling
-  const handleScroll = useCallback(
-    (e: React.UIEvent<HTMLDivElement>) => {
-      if (!showVirtualScrolling) return;
-
-      const target = e.target as HTMLDivElement;
-      const scrollTop = target.scrollTop;
-      const itemHeight = 48; // Approximate row height
-      const containerHeight = target.clientHeight;
-      const visibleCount = Math.ceil(containerHeight / itemHeight);
-      const start = Math.floor(scrollTop / itemHeight);
-      const end = Math.min(start + visibleCount + 10, sortedBets.length); // Buffer
-
-      setVisibleRange({ start, end });
-    },
-    [showVirtualScrolling, sortedBets.length]
-  );
-
-  // Handle sorting
-  const handleSort = (field: SortField) => {
-    const newDirection =
-      sortField === field && sortDirection === "asc" ? "desc" : "asc";
-
-    if (onSort) {
-      onSort(field, newDirection);
-    }
-  };
-
-  // Handle filter changes (stable, functional updates to avoid loops)
-  const handleFilterChange = useCallback(
-    (newFilters: Partial<BetFilters>) => {
-      setLocalFilters((prev) => {
-        const merged: BetFilters = { ...prev, ...newFilters };
-
-        // Clean undefined values to truly remove filters
-        (Object.keys(merged) as (keyof BetFilters)[]).forEach((k) => {
-          if ((merged as any)[k] === undefined) {
-            delete (merged as any)[k];
-          }
-        });
-
-        const changed = !filtersShallowEqual(prev, merged);
-        if (changed && onFilter) {
-          onFilter(merged);
-        }
-        return changed ? merged : prev;
-      });
-    },
-    [onFilter]
-  );
-
   // Handle bookmark functionality
   const handleBookmark = useCallback(
     (bet: BetRecord, note?: string) => {
@@ -338,109 +172,45 @@ function LiveBetTable({
     [onBookmark]
   );
 
+  const columns = useMemo(
+    () =>
+      createColumns({
+        showBookmarks,
+        showDistanceColumn: shouldShowDistance,
+        onBookmark: handleBookmark,
+        pinnedMultipliers,
+      }),
+    [showBookmarks, shouldShowDistance, handleBookmark, pinnedMultipliers]
+  );
+
+  const table = useReactTable({
+    data: betsWithDistance,
+    columns,
+    state: {
+      sorting,
+      columnFilters,
+    },
+    onSortingChange: setSorting,
+    onColumnFiltersChange: setColumnFilters,
+    getCoreRowModel: getCoreRowModel(),
+    getSortedRowModel: getSortedRowModel(),
+    getFilteredRowModel: getFilteredRowModel(),
+  });
+
+  const tableRef = useRef<HTMLDivElement>(null);
+
+  const { rows } = table.getRowModel();
+
+  const rowVirtualizer = useVirtualizer({
+    count: rows.length,
+    getScrollElement: () => tableRef.current,
+    estimateSize: () => 48, // Estimate row height
+  });
+
   // Handle filter reset
   const handleResetFilters = useCallback(() => {
-    const resetFilters: BetFilters = {};
-    setLocalFilters((prev) => {
-      const changed = !filtersShallowEqual(prev, resetFilters);
-      if (changed && onFilter) {
-        onFilter(resetFilters);
-      }
-      return changed ? resetFilters : prev;
-    });
-    setFilterInputs({
-      minMultiplier: "",
-      minAmount: "",
-      maxAmount: "",
-    });
-  }, [onFilter]);
-
-  // Apply filter inputs with debouncing
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      const newFilters: Partial<BetFilters> = {};
-
-      // Handle min multiplier - clear filter if input is empty
-      if (filterInputs.minMultiplier.trim()) {
-        const value = parseFloat(filterInputs.minMultiplier);
-        if (!isNaN(value)) newFilters.minMultiplier = value;
-      } else {
-        newFilters.minMultiplier = undefined;
-      }
-
-      // Handle min amount - clear filter if input is empty
-      if (filterInputs.minAmount.trim()) {
-        const value = parseFloat(filterInputs.minAmount);
-        if (!isNaN(value)) newFilters.minAmount = value;
-      } else {
-        newFilters.minAmount = undefined;
-      }
-
-      // Handle max amount - clear filter if input is empty
-      if (filterInputs.maxAmount.trim()) {
-        const value = parseFloat(filterInputs.maxAmount);
-        if (!isNaN(value)) newFilters.maxAmount = value;
-      } else {
-        newFilters.maxAmount = undefined;
-      }
-
-      handleFilterChange(newFilters);
-    }, 500);
-
-    return () => clearTimeout(timer);
-  }, [filterInputs, handleFilterChange]);
-
-  // Format functions
-  const formatMultiplier = (multiplier: number) => {
-    if (multiplier >= 1000) {
-      return `${(multiplier / 1000).toFixed(1)}k×`;
-    }
-    return `${multiplier.toFixed(2)}×`;
-  };
-
-  const formatAmount = (amount: number) => {
-    return amount.toFixed(8);
-  };
-
-  const formatDateTime = (dateTime?: string, receivedAt?: string) => {
-    const date = new Date(dateTime || receivedAt || "");
-    return date.toLocaleString();
-  };
-
-  const getMultiplierBadgeVariant = (multiplier: number) => {
-    if (multiplier >= MULTIPLIER_THRESHOLDS.legendary) return "destructive";
-    if (multiplier >= MULTIPLIER_THRESHOLDS.extreme) return "default";
-    if (multiplier >= MULTIPLIER_THRESHOLDS.high) return "secondary";
-    return "outline";
-  };
-
-  const SortButton = ({
-    field,
-    children,
-  }: {
-    field: SortField;
-    children: React.ReactNode;
-  }) => (
-    <Button
-      variant="ghost"
-      size="sm"
-      className="h-auto p-0 font-medium hover:bg-transparent"
-      onClick={() => handleSort(field)}
-    >
-      <div className="flex items-center gap-1">
-        {children}
-        {sortField === field ? (
-          sortDirection === "asc" ? (
-            <ArrowUp className="h-3 w-3" />
-          ) : (
-            <ArrowDown className="h-3 w-3" />
-          )
-        ) : (
-          <ArrowUpDown className="h-3 w-3 opacity-50" />
-        )}
-      </div>
-    </Button>
-  );
+    table.resetColumnFilters();
+  }, [table]);
 
   // Loading state
   if (isLoading) {
@@ -490,19 +260,32 @@ function LiveBetTable({
         </div>
 
         <div className="flex items-center gap-2">
-          <label className="text-sm text-muted-foreground">
+          <label className="text-sm text-muted_foreground">
             Min Multiplier:
           </label>
           <Input
             type="number"
             placeholder="1.0"
-            value={filterInputs.minMultiplier}
-            onChange={(e) =>
-              setFilterInputs((prev) => ({
-                ...prev,
-                minMultiplier: e.target.value,
-              }))
+            value={
+              (
+                table.getColumn("multiplier")?.getFilterValue() as [
+                  number,
+                  boolean
+                ]
+              )?.[0] ?? ""
             }
+            onChange={(e) => {
+              const value = e.target.value;
+              const currentFilter = table
+                .getColumn("multiplier")
+                ?.getFilterValue() as [number, boolean] | undefined;
+              table
+                .getColumn("multiplier")
+                ?.setFilterValue([
+                  value ? Number(value) : undefined,
+                  currentFilter?.[1],
+                ]);
+            }}
             className="w-24 h-8"
             step="0.01"
             min="0"
@@ -512,11 +295,14 @@ function LiveBetTable({
         <div className="flex items-center gap-2">
           <label className="text-sm text-muted-foreground">Difficulty:</label>
           <Select
-            value={localFilters.difficulty || "all"}
+            value={
+              (table.getColumn("difficulty")?.getFilterValue() as string) ??
+              "all"
+            }
             onValueChange={(value) =>
-              handleFilterChange({
-                difficulty: value === "all" ? undefined : value,
-              })
+              table
+                .getColumn("difficulty")
+                ?.setFilterValue(value === "all" ? undefined : value)
             }
           >
             <SelectTrigger className="w-24 h-8">
@@ -536,13 +322,22 @@ function LiveBetTable({
         {shouldShowPinnedFilter && (
           <div className="flex items-center gap-2">
             <Switch
-              checked={localFilters.showOnlyPinned || false}
-              onCheckedChange={(checked) =>
-                handleFilterChange({
-                  showOnlyPinned: checked,
-                  pinnedMultipliers: pinnedMultipliers,
-                })
+              checked={
+                (
+                  table.getColumn("multiplier")?.getFilterValue() as [
+                    number,
+                    boolean
+                  ]
+                )?.[1] ?? false
               }
+              onCheckedChange={(checked) => {
+                const currentFilter = table
+                  .getColumn("multiplier")
+                  ?.getFilterValue() as [number, boolean] | undefined;
+                table
+                  .getColumn("multiplier")
+                  ?.setFilterValue([currentFilter?.[0], checked]);
+              }}
             />
             <label className="text-sm text-muted-foreground">
               Show Only Pinned
@@ -555,13 +350,25 @@ function LiveBetTable({
           <Input
             type="number"
             placeholder="Min"
-            value={filterInputs.minAmount}
-            onChange={(e) =>
-              setFilterInputs((prev) => ({
-                ...prev,
-                minAmount: e.target.value,
-              }))
+            value={
+              (
+                table.getColumn("amount")?.getFilterValue() as
+                  | [number, number]
+                  | undefined
+              )?.[0] ?? ""
             }
+            onChange={(e) => {
+              const value = e.target.value;
+              const currentFilter = table
+                .getColumn("amount")
+                ?.getFilterValue() as [number, number] | undefined;
+              table
+                .getColumn("amount")
+                ?.setFilterValue([
+                  value ? Number(value) : undefined,
+                  currentFilter?.[1],
+                ]);
+            }}
             className="w-20 h-8"
             step="0.00000001"
             min="0"
@@ -570,13 +377,25 @@ function LiveBetTable({
           <Input
             type="number"
             placeholder="Max"
-            value={filterInputs.maxAmount}
-            onChange={(e) =>
-              setFilterInputs((prev) => ({
-                ...prev,
-                maxAmount: e.target.value,
-              }))
+            value={
+              (
+                table.getColumn("amount")?.getFilterValue() as
+                  | [number, number]
+                  | undefined
+              )?.[1] ?? ""
             }
+            onChange={(e) => {
+              const value = e.target.value;
+              const currentFilter = table
+                .getColumn("amount")
+                ?.getFilterValue() as [number, number] | undefined;
+              table
+                .getColumn("amount")
+                ?.setFilterValue([
+                  currentFilter?.[0],
+                  value ? Number(value) : undefined,
+                ]);
+            }}
             className="w-20 h-8"
             step="0.00000001"
             min="0"
@@ -584,7 +403,7 @@ function LiveBetTable({
         </div>
 
         <div className="text-sm text-muted-foreground">
-          {filteredBets.length} of {bets.length} bets
+          {table.getRowModel().rows.length} of {bets.length} bets
         </div>
 
         <Button
@@ -606,175 +425,74 @@ function LiveBetTable({
           showVirtualScrolling && "max-h-[600px]"
         )}
         style={showVirtualScrolling ? { maxHeight } : undefined}
-        onScroll={handleScroll}
       >
         <Table>
           <TableHeader className="sticky top-0 bg-background z-10">
-            <TableRow>
-              {showBookmarks && (
-                <TableHead className="w-12">
-                  <Star className="h-3 w-3" />
-                </TableHead>
-              )}
-              <TableHead>
-                <SortButton field="nonce">Nonce</SortButton>
-              </TableHead>
-              <TableHead>
-                <SortButton field="date_time">Date/Time</SortButton>
-              </TableHead>
-              <TableHead>
-                <SortButton field="amount">Amount</SortButton>
-              </TableHead>
-              <TableHead>
-                <SortButton field="round_result">
-                  <TrendingUp className="h-3 w-3 mr-1" />
-                  Multiplier
-                </SortButton>
-              </TableHead>
-              {shouldShowDistance && (
-                <TableHead>
-                  <BarChart3 className="h-3 w-3 mr-1" />
-                  Distance
-                </TableHead>
-              )}
-              <TableHead>
-                <SortButton field="payout">Payout</SortButton>
-              </TableHead>
-              <TableHead>
-                <SortButton field="difficulty">Difficulty</SortButton>
-              </TableHead>
-              <TableHead>Target/Result</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {visibleBets.length === 0 ? (
-              <TableRow>
-                <TableCell
-                  colSpan={
-                    showBookmarks && shouldShowDistance
-                      ? 9
-                      : showBookmarks || shouldShowDistance
-                      ? 8
-                      : 7
-                  }
-                  className="text-center py-8 text-muted-foreground"
-                >
-                  {filteredBets.length === 0 && bets.length > 0
-                    ? "No bets match the current filters"
-                    : "No bets available"}
-                </TableCell>
-              </TableRow>
-            ) : (
-              visibleBets.map((bet) => {
-                const multiplier =
-                  bet.round_result ?? bet.payout_multiplier ?? 0;
-                const isHighlighted =
-                  highlightMultiplier &&
-                  Math.abs(multiplier - highlightMultiplier) < 1e-9;
-                const isBookmarked = (bet as any).isBookmarked || false;
-
-                return (
-                  <TableRow
-                    key={bet.id}
-                    className={cn(
-                      "cursor-pointer transition-all duration-200",
-                      highlightNewBets &&
-                        newBetIds.has(bet.id) &&
-                        "bg-green-50 dark:bg-green-900/10 animate-pulse",
-                      isHighlighted && "bg-yellow-50 dark:bg-yellow-900/10",
-                      onBetClick && "hover:bg-accent/50"
-                    )}
-                    onClick={() => onBetClick?.(bet)}
-                    data-testid={isHighlighted ? "highlighted-row" : undefined}
-                  >
-                    {showBookmarks && (
-                      <TableCell className="w-12">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className={cn(
-                            "h-6 w-6",
-                            isBookmarked && "bookmarked text-yellow-500"
-                          )}
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleBookmark(bet);
-                          }}
-                          aria-label="Bookmark this bet"
-                        >
-                          {isBookmarked ? (
-                            <Star className="h-3 w-3 fill-current" />
-                          ) : (
-                            <StarOff className="h-3 w-3" />
-                          )}
-                        </Button>
-                      </TableCell>
-                    )}
-                    <TableCell className="font-mono text-sm">
-                      {bet.nonce.toLocaleString()}
-                    </TableCell>
-                    <TableCell className="text-sm">
-                      {formatDateTime(bet.date_time, bet.received_at)}
-                    </TableCell>
-                    <TableCell className="font-mono text-sm">
-                      {formatAmount(bet.amount)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={getMultiplierBadgeVariant(multiplier)}
-                        className="font-mono text-xs"
-                      >
-                        {formatMultiplier(multiplier)}
-                      </Badge>
-                    </TableCell>
-                    {shouldShowDistance && (
-                      <TableCell className="font-mono text-sm">
-                        {bet.distance_prev_opt !== null &&
-                        bet.distance_prev_opt !== undefined
-                          ? bet.distance_prev_opt.toLocaleString()
-                          : "—"}
-                      </TableCell>
-                    )}
-                    <TableCell className="font-mono text-sm">
-                      {formatAmount(bet.payout)}
-                    </TableCell>
-                    <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          "text-xs capitalize",
-                          DIFFICULTY_COLORS[bet.difficulty]
+            {table.getHeaderGroups().map((headerGroup) => (
+              <TableRow key={headerGroup.id}>
+                {headerGroup.headers.map((header) => (
+                  <TableHead key={header.id}>
+                    {header.isPlaceholder
+                      ? null
+                      : flexRender(
+                          header.column.columnDef.header,
+                          header.getContext()
                         )}
-                      >
-                        {bet.difficulty}
-                      </Badge>
-                    </TableCell>
-                    <TableCell className="font-mono text-xs text-muted-foreground">
-                      {bet.round_target && bet.round_result ? (
-                        <div className="space-y-1">
-                          <div>T: {bet.round_target.toFixed(2)}</div>
-                          <div>R: {bet.round_result.toFixed(2)}</div>
-                        </div>
-                      ) : (
-                        "—"
+                  </TableHead>
+                ))}
+              </TableRow>
+            ))}
+          </TableHeader>
+          <TableBody
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              position: "relative",
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const row = rows[virtualRow.index];
+              if (!row) return null;
+              return (
+                <TableRow
+                  key={row.id}
+                  data-state={row.getIsSelected() && "selected"}
+                  className={cn(
+                    "cursor-pointer transition-all duration-200",
+                    onBetClick && "hover:bg-accent/50"
+                  )}
+                  onClick={() => onBetClick?.(row.original)}
+                  style={{
+                    position: "absolute",
+                    top: 0,
+                    left: 0,
+                    width: "100%",
+                    height: `${virtualRow.size}px`,
+                    transform: `translateY(${virtualRow.start}px)`,
+                  }}
+                >
+                  {row.getVisibleCells().map((cell) => (
+                    <TableCell key={cell.id}>
+                      {flexRender(
+                        cell.column.columnDef.cell,
+                        cell.getContext()
                       )}
                     </TableCell>
-                  </TableRow>
-                );
-              })
-            )}
+                  ))}
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       </div>
 
       {/* Virtual scrolling spacer */}
-      {showVirtualScrolling && sortedBets.length > visibleBets.length && (
+      {/* {showVirtualScrolling && bets.length > visibleBets.length && (
         <div
           style={{
-            height: `${(sortedBets.length - visibleBets.length) * 48}px`,
+            height: `${(bets.length - visibleBets.length) * 48}px`,
           }}
         />
-      )}
+      )} */}
     </div>
   );
 }

@@ -1,0 +1,59 @@
+# Implementation Plan
+
+-   [x] 1. **Setup and Initial Integration**
+    -   [x] 1.1 Install TanStack Table and Virtual dependencies.
+        -   Add `@tanstack/react-table` and `@tanstack/react-virtual` to the `pump-frontend/package.json` file.
+        -   Run `npm install` to ensure dependencies are available.
+        -   _Requirements: NFR-4_
+    -   [x] 1.2 Create the column definitions file.
+        -   Create a new file `pump-frontend/src/components/live-streams/columns.ts`.
+        -   Define the column structure for the `BetRecord` data using `createColumnHelper`.
+        -   Encapsulate all cell rendering logic (e.g., badges, formatting) within the column definitions.
+        -   _Requirements: FR-2, FR-5_
+    -   [x] 1.3 Integrate the `useReactTable` hook.
+        -   In `LiveBetTable.tsx`, import the column definitions.
+        -   Initialize the `useReactTable` hook, passing the `bets` prop as `data` and the imported `columns`.
+        -   Configure the table with `getCoreRowModel`.
+        -   Temporarily disable the old rendering logic.
+        -   _Requirements: NFR-2_
+
+-   [x] 2. **Refactor Rendering and State Management**
+    -   [x] 2.1 Render table headers and body using the TanStack Table instance.
+        -   Replace the existing `<TableHeader>` mapping with a loop over `table.getHeaderGroups()`.
+        -   Replace the existing `<TableBody>` mapping with a loop over `table.getRowModel().rows`.
+        -   Ensure all `shadcn/ui` components are used correctly for styling.
+        -   _Requirements: FR-5_
+    -   [x] 2.2 Implement sorting state.
+        -   Add a `useState` for `sorting`.
+        -   Pass the sorting state and `onSortingChange` updater to the `useReactTable` hook.
+        -   Enable sorting in the column definitions where required.
+        -   Set the initial sorting state to `{ id: 'nonce', desc: true }`.
+        -   _Requirements: FR-3_
+    -   [x] 2.3 Implement filtering state.
+        -   Add a `useState` for `columnFilters`.
+        -   Pass the filter state and `onColumnFiltersChange` updater to the `useReactTable` hook.
+        -   Connect the filter input components (Min Multiplier, Difficulty, etc.) to update the `columnFilters` state.
+        -   _Requirements: FR-4_
+
+-   [x] 3. **Virtualization and Finalization**
+    -   [x] 3.1 Implement row virtualization.
+        -   Integrate the `useVirtualizer` hook from `@tanstack/react-virtual`.
+        -   Configure the virtualizer with the row count from the table instance.
+        -   Update the rendering logic to iterate over `virtualizer.getVirtualItems()` to render only visible rows.
+        -   _Requirements: NFR-1_
+    -   [x] 3.2 Remove legacy code.
+        -   Delete all `useState`, `useMemo`, and `useEffect` hooks related to the old, custom sorting and filtering logic.
+        -   Remove any helper functions that are no longer needed.
+        -   Ensure the component's public props interface (`LiveBetTableProps`) has not been altered.
+        -   _Requirements: NFR-2, NFR-3_
+    -   [x] 3.3 Verify feature parity.
+        -   Manually test all previous functionalities: sorting, filtering by all criteria, real-time updates, row highlighting, row clicking, and bookmarking.
+        -   Confirm that loading and error states are still displayed correctly.
+        -   _Requirements: FR-1, FR-6, FR-7, FR-8, FR-9_
+
+-   [ ] 4. **Testing**
+    -   [ ] 4.1 Update and create tests for the new implementation.
+        -   Write unit tests for the new `columns.ts` file to verify cell rendering and data access.
+        -   Update existing component tests for `LiveBetTable` to work with the new DOM structure and state management.
+        -   Ensure E2E tests for filtering and sorting are still passing.
+        -   _Requirements: All_

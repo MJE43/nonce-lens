@@ -82,7 +82,8 @@ export function useStreamTail(
           // Update state with new bets
           setNewBets((prev) => [...prev, ...bets]);
           setTotalNewBets((prev) => prev + bets.length);
-          setLastId(newLastId);
+          // Only update if changed to avoid unnecessary renders
+          setLastId((prev) => (prev !== newLastId ? newLastId : prev));
 
           // Notify callback
           onNewBets?.(bets);
@@ -94,7 +95,7 @@ export function useStreamTail(
           });
         } else {
           // Update lastId even if no new bets
-          setLastId(newLastId);
+          setLastId((prev) => (prev !== newLastId ? newLastId : prev));
         }
 
         // Reset error count on success
@@ -231,7 +232,19 @@ export function useRealTimeBets(
 
   // Update all bets when initial bets change
   useEffect(() => {
-    setAllBets(initialBets);
+    // Guard: only update when content meaningfully changes
+    setAllBets((prev) => {
+      if (prev === initialBets) return prev;
+      const prevLen = prev.length;
+      const nextLen = (initialBets ?? []).length;
+      if (prevLen === nextLen) {
+        const prevLast = prevLen > 0 ? prev[prevLen - 1]?.id : undefined;
+        const nextLast =
+          nextLen > 0 ? (initialBets ?? [])[nextLen - 1]?.id : undefined;
+        if (prevLast === nextLast) return prev;
+      }
+      return initialBets ?? [];
+    });
   }, [initialBets]);
 
   const startRealTime = useCallback(() => {

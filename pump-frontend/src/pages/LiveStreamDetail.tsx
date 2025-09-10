@@ -7,6 +7,7 @@ import {
   useEnhancedUpdateStream,
 } from "@/hooks/useEnhancedLiveStreams";
 import { useRealTimeBets } from "@/hooks/useStreamTail";
+import type { BetRecord } from "@/lib/api";
 import { useAnalyticsState } from "@/hooks/useAnalyticsState";
 import { liveStreamsApi } from "../lib/api";
 import Breadcrumb from "../components/Breadcrumb";
@@ -71,14 +72,19 @@ const LiveStreamDetail = () => {
   const { data: initialBetsData, isLoading: betsLoading } =
     useEnhancedStreamBets(id!, {
       order: "id_desc",
-      limit: 10000, // Get many more bets for proper filtering
+      limit: 1000, // Backend max is 1000
     });
 
   // Analytics state hook for processing incoming bets
   const { updateFromTail } = useAnalyticsState(id!);
 
   // Hooks - pass initial bets to establish proper lastId
-  const realTimeBets = useRealTimeBets(id!, initialBetsData?.bets || []);
+  // Use stable empty array to avoid infinite re-renders from new [] reference
+  const EMPTY_BETS: BetRecord[] = [];
+  const realTimeBets = useRealTimeBets(
+    id!,
+    initialBetsData?.bets ?? EMPTY_BETS
+  );
 
   // Update analytics when new bets arrive
   useEffect(() => {
