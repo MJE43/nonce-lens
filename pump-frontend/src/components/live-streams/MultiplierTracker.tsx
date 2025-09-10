@@ -1,10 +1,10 @@
 /**
  * MultiplierTracker Component
- * 
+ *
  * Provides multiplier selection chips and displays per-multiplier statistics.
  * Calculates ETA using theoretical probability tables when available, else observed mean_gap.
  * Implements "show distances" functionality to scroll and highlight table rows.
- * 
+ *
  * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
  */
 
@@ -12,12 +12,9 @@ import React, { useState, useCallback, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { 
-  Target, 
-  TrendingUp, 
-  Hash, 
-  Clock, 
-  Zap,
+import {
+  Target,
+  Clock,
   Eye,
   X,
   Plus
@@ -206,7 +203,7 @@ export const MultiplierTracker: React.FC<MultiplierTrackerProps> = ({
           Multiplier Tracker
         </CardTitle>
       </CardHeader>
-      
+
       <CardContent className="space-y-6">
         {/* Pinned Multipliers Stats */}
         {pinnedMultipliers.size > 0 && (
@@ -214,12 +211,12 @@ export const MultiplierTracker: React.FC<MultiplierTrackerProps> = ({
             <div className="text-sm font-medium text-slate-300">
               Pinned Multipliers ({pinnedMultipliers.size})
             </div>
-            
+
             <div className="space-y-3">
               {Array.from(pinnedMultipliers.entries()).map(([multiplier, pinnedData]) => {
                 const eta = calculateETA(multiplier, pinnedData.stats);
                 const colorClasses = getMultiplierColor(multiplier);
-                
+
                 return (
                   <div
                     key={multiplier}
@@ -231,14 +228,14 @@ export const MultiplierTracker: React.FC<MultiplierTrackerProps> = ({
                         <Badge className={`font-mono text-sm ${colorClasses}`}>
                           {multiplier.toFixed(2)}x
                         </Badge>
-                        <Badge 
-                          variant="outline" 
+                        <Badge
+                          variant="outline"
                           className={`text-xs ${eta.model === 'theoretical' ? 'border-blue-500/50 text-blue-400' : 'border-slate-500/50 text-slate-400'}`}
                         >
                           {eta.model}
                         </Badge>
                       </div>
-                      
+
                       <div className="flex items-center gap-2">
                         <Button
                           variant="outline"
@@ -266,21 +263,21 @@ export const MultiplierTracker: React.FC<MultiplierTrackerProps> = ({
                         <div className="text-white font-semibold">{pinnedData.stats.count}</div>
                         <div className="text-slate-400 text-xs">Count</div>
                       </div>
-                      
+
                       <div className="text-center p-2 bg-slate-800/30 rounded border border-slate-700/50">
                         <div className="text-green-400 font-semibold font-mono">
                           {pinnedData.stats.lastNonce.toLocaleString()}
                         </div>
                         <div className="text-slate-400 text-xs">Last Nonce</div>
                       </div>
-                      
+
                       <div className="text-center p-2 bg-slate-800/30 rounded border border-slate-700/50">
                         <div className="text-yellow-400 font-semibold font-mono">
                           {formatNumber(pinnedData.stats.lastGap)}
                         </div>
                         <div className="text-slate-400 text-xs">Last Gap</div>
                       </div>
-                      
+
                       <div className="text-center p-2 bg-slate-800/30 rounded border border-slate-700/50">
                         <div className="text-blue-400 font-semibold font-mono">
                           {formatNumber(pinnedData.stats.meanGap)}
@@ -297,14 +294,14 @@ export const MultiplierTracker: React.FC<MultiplierTrackerProps> = ({
                         </div>
                         <div className="text-slate-400 text-xs">Std Gap</div>
                       </div>
-                      
+
                       <div className="text-center p-2 bg-slate-800/20 rounded border border-slate-700/30">
                         <div className="text-orange-400 font-semibold font-mono">
                           {formatNumber(pinnedData.stats.p90Gap)}
                         </div>
                         <div className="text-slate-400 text-xs">P90 Gap</div>
                       </div>
-                      
+
                       <div className="text-center p-2 bg-slate-800/20 rounded border border-slate-700/30">
                         <div className="text-red-400 font-semibold font-mono">
                           {formatNumber(pinnedData.stats.maxGap)}
@@ -363,7 +360,7 @@ export const MultiplierTracker: React.FC<MultiplierTrackerProps> = ({
               .map(multiplier => {
                 const colorClasses = getMultiplierColor(multiplier);
                 const isFromStream = streamMultipliers.includes(multiplier);
-                
+
                 return (
                   <Button
                     key={multiplier}

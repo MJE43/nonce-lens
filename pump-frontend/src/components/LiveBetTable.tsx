@@ -53,9 +53,9 @@ interface LiveBetTableProps {
 
 export type SortField =
   | "nonce"
-  | "dateTime"
+  | "date_time"
   | "amount"
-  | "payoutMultiplier"
+  | "round_result"
   | "payout"
   | "difficulty";
 export type SortDirection = "asc" | "desc";
@@ -86,7 +86,7 @@ const MULTIPLIER_THRESHOLDS = {
  * Includes multiplier highlighting and difficulty badges
  * Requirements: 4.2, 4.3, 5.1
  */
-export function LiveBetTable({
+function LiveBetTable({
   bets,
   isLoading = false,
   isError = false,
@@ -119,7 +119,7 @@ export function LiveBetTable({
     return bets.filter((bet) => {
       if (
         localFilters.minMultiplier &&
-        bet.payoutMultiplier < localFilters.minMultiplier
+        (bet.round_result ?? 0) < localFilters.minMultiplier
       ) {
         return false;
       }
@@ -148,9 +148,9 @@ export function LiveBetTable({
       let bValue: any = b[sortField];
 
       // Handle date sorting
-      if (sortField === "dateTime") {
-        aValue = new Date(a.dateTime || a.receivedAt).getTime();
-        bValue = new Date(b.dateTime || b.receivedAt).getTime();
+      if (sortField === "date_time") {
+        aValue = new Date(a.date_time || a.received_at).getTime();
+        bValue = new Date(b.date_time || b.received_at).getTime();
       }
 
       // Handle numeric sorting
@@ -442,13 +442,13 @@ export function LiveBetTable({
                 <SortButton field="nonce">Nonce</SortButton>
               </TableHead>
               <TableHead>
-                <SortButton field="dateTime">Date/Time</SortButton>
+                <SortButton field="date_time">Date/Time</SortButton>
               </TableHead>
               <TableHead>
                 <SortButton field="amount">Amount</SortButton>
               </TableHead>
               <TableHead>
-                <SortButton field="payoutMultiplier">
+                <SortButton field="round_result">
                   <TrendingUp className="h-3 w-3 mr-1" />
                   Multiplier
                 </SortButton>
@@ -498,10 +498,10 @@ export function LiveBetTable({
                   </TableCell>
                   <TableCell>
                     <Badge
-                      variant={getMultiplierBadgeVariant(bet.payoutMultiplier)}
+                      variant={getMultiplierBadgeVariant(bet.round_result ?? 0)}
                       className="font-mono text-xs"
                     >
-                      {formatMultiplier(bet.payoutMultiplier)}
+                      {formatMultiplier(bet.round_result ?? 0)}
                     </Badge>
                   </TableCell>
                   <TableCell className="font-mono text-sm">
@@ -519,10 +519,10 @@ export function LiveBetTable({
                     </Badge>
                   </TableCell>
                   <TableCell className="font-mono text-xs text-muted-foreground">
-                    {bet.roundTarget && bet.roundResult ? (
+                    {bet.round_target && bet.round_result ? (
                       <div className="space-y-1">
-                        <div>T: {bet.roundTarget.toFixed(2)}</div>
-                        <div>R: {bet.roundResult.toFixed(2)}</div>
+                        <div>T: {bet.round_target.toFixed(2)}</div>
+                        <div>R: {bet.round_result.toFixed(2)}</div>
                       </div>
                     ) : (
                       "—"
@@ -546,3 +546,5 @@ export function LiveBetTable({
     </div>
   );
 }
+
+export { LiveBetTable };

@@ -1,9 +1,9 @@
 /**
  * LiveKPIPanel Component
- * 
+ *
  * Displays real-time KPIs that update incrementally from tail appends.
  * Supports "Freeze UI" mode that continues stats updates while stopping auto-scroll.
- * 
+ *
  * Requirements: 1.1, 1.2, 1.3, 1.4, 1.5, 1.6, 1.7, 1.8, 1.9
  */
 
@@ -13,15 +13,14 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
-import { 
-  Activity, 
-  TrendingUp, 
-  Hash, 
-  Clock, 
-  Zap,
-  Pause,
+import {
+  Activity,
+  Clock,
   Play,
-  Snowflake
+  Snowflake,
+  TrendingUp,
+  Hash,
+  Zap
 } from 'lucide-react';
 import type { LiveKPIs } from '@/hooks/useAnalyticsState';
 
@@ -87,7 +86,6 @@ const getMultiplierColor = (multiplier: number): string => {
 export const LiveKPIPanel: React.FC<LiveKPIPanelProps> = ({
   kpis,
   isLive,
-  streamStartTime,
   freezeUI,
   onToggleFreezeUI,
   applyFiltersToKPIs,
@@ -110,7 +108,7 @@ export const LiveKPIPanel: React.FC<LiveKPIPanelProps> = ({
                 {isLive ? 'Live' : 'Offline'}
               </span>
             </div>
-            
+
             {/* Freeze UI Toggle */}
             <Button
               variant="outline"
@@ -135,7 +133,7 @@ export const LiveKPIPanel: React.FC<LiveKPIPanelProps> = ({
           </div>
         </div>
       </CardHeader>
-      
+
       <CardContent className="space-y-6">
         {/* Primary KPIs Grid */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
@@ -146,7 +144,7 @@ export const LiveKPIPanel: React.FC<LiveKPIPanelProps> = ({
             </div>
             <div className="text-sm text-slate-400">Highest Multiplier</div>
           </div>
-          
+
           {/* Hits Count */}
           <div className="text-center p-4 bg-slate-900/30 rounded-lg border border-slate-700">
             <div className="text-2xl font-bold text-white">
@@ -154,7 +152,7 @@ export const LiveKPIPanel: React.FC<LiveKPIPanelProps> = ({
             </div>
             <div className="text-sm text-slate-400">Total Hits</div>
           </div>
-          
+
           {/* Hit Rate */}
           <div className="text-center p-4 bg-slate-900/30 rounded-lg border border-slate-700">
             <div className="text-2xl font-bold text-blue-400">
@@ -176,7 +174,7 @@ export const LiveKPIPanel: React.FC<LiveKPIPanelProps> = ({
             </div>
             <div className="text-xs text-slate-400">30s EMA</div>
           </div>
-          
+
           {/* Latest Nonce */}
           <div className="text-center p-3 bg-slate-900/20 rounded-lg border border-slate-700/50">
             <div className="flex items-center justify-center gap-1 mb-1">
@@ -187,7 +185,7 @@ export const LiveKPIPanel: React.FC<LiveKPIPanelProps> = ({
             </div>
             <div className="text-xs text-slate-400">Latest Nonce</div>
           </div>
-          
+
           {/* Latest Gap */}
           <div className="text-center p-3 bg-slate-900/20 rounded-lg border border-slate-700/50">
             <div className="flex items-center justify-center gap-1 mb-1">
@@ -198,7 +196,7 @@ export const LiveKPIPanel: React.FC<LiveKPIPanelProps> = ({
             </div>
             <div className="text-xs text-slate-400">Latest Gap</div>
           </div>
-          
+
           {/* Stream Duration */}
           <div className="text-center p-3 bg-slate-900/20 rounded-lg border border-slate-700/50">
             <div className="flex items-center justify-center gap-1 mb-1">
@@ -220,23 +218,23 @@ export const LiveKPIPanel: React.FC<LiveKPIPanelProps> = ({
                 checked={applyFiltersToKPIs}
                 onCheckedChange={onToggleApplyFilters}
               />
-              <Label 
-                htmlFor="apply-filters-kpis" 
+              <Label
+                htmlFor="apply-filters-kpis"
                 className="text-sm text-slate-300 cursor-pointer"
               >
                 Apply filters to KPIs
               </Label>
             </div>
-            
+
             {applyFiltersToKPIs && (
               <Badge variant="outline" className="border-blue-500/50 text-blue-400">
                 Filtered
               </Badge>
             )}
           </div>
-          
+
           <div className="mt-2 text-xs text-slate-500">
-            {applyFiltersToKPIs 
+            {applyFiltersToKPIs
               ? "KPIs calculated from filtered data only"
               : "KPIs calculated from all stream data"
             }

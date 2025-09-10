@@ -21,7 +21,7 @@ interface StreamSummaryCardProps {
  * Shows essential stream metadata with activity indicators and quick actions
  * Supports loading and error states as per requirements 3.1, 3.5
  */
-export function StreamSummaryCard({
+function StreamSummaryCard({
   stream,
   isLoading = false,
   isError = false,
@@ -64,7 +64,9 @@ export function StreamSummaryCard({
       <Card className={cn("border-destructive/50 bg-destructive/5", className)}>
         <CardContent className="flex items-center justify-center py-8">
           <div className="text-center text-sm text-muted-foreground">
-            {isError ? "Failed to load stream data" : "No stream data available"}
+            {isError
+              ? "Failed to load stream data"
+              : "No stream data available"}
           </div>
         </CardContent>
       </Card>
@@ -72,10 +74,12 @@ export function StreamSummaryCard({
   }
 
   // Calculate activity status based on last seen time
-  const lastSeenDate = new Date(stream.lastSeenAt);
+  const lastSeenDate = new Date(stream.last_seen_at);
   const now = new Date();
-  const minutesAgo = Math.floor((now.getTime() - lastSeenDate.getTime()) / (1000 * 60));
-  
+  const minutesAgo = Math.floor(
+    (now.getTime() - lastSeenDate.getTime()) / (1000 * 60)
+  );
+
   const isActive = minutesAgo < 5; // Active if seen within 5 minutes
   const isRecent = minutesAgo < 30; // Recent if seen within 30 minutes
 
@@ -86,7 +90,7 @@ export function StreamSummaryCard({
     const diffHours = Math.floor(diffMinutes / 60);
     const diffDays = Math.floor(diffHours / 24);
 
-    if (diffMinutes < 1) return 'Just now';
+    if (diffMinutes < 1) return "Just now";
     if (diffMinutes < 60) return `${diffMinutes}m ago`;
     if (diffHours < 24) return `${diffHours}h ago`;
     return `${diffDays}d ago`;
@@ -106,7 +110,7 @@ export function StreamSummaryCard({
   };
 
   return (
-    <Card 
+    <Card
       className={cn(
         "hover:shadow-md transition-all cursor-pointer group",
         "hover:border-primary/20 hover:bg-accent/5",
@@ -121,26 +125,26 @@ export function StreamSummaryCard({
               <div className="flex items-center gap-2">
                 <Hash className="h-3 w-3 text-muted-foreground shrink-0" />
                 <span className="font-mono text-xs">
-                  {stream.serverSeedHashed.substring(0, 10)}...
+                  {stream.server_seed_hashed.substring(0, 10)}...
                 </span>
               </div>
             </CardTitle>
             <div className="text-xs text-muted-foreground truncate">
-              Client: <span className="font-mono">{stream.clientSeed}</span>
+              Client: <span className="font-mono">{stream.client_seed}</span>
             </div>
           </div>
-          
+
           <CardAction>
             <div className="flex items-center gap-2">
               {showActivityIndicator && (
                 <div className="flex items-center gap-1">
-                  <Activity 
+                  <Activity
                     className={cn(
                       "h-3 w-3",
                       isActive && "text-green-500 animate-pulse",
                       isRecent && !isActive && "text-yellow-500",
                       !isRecent && "text-muted-foreground"
-                    )} 
+                    )}
                   />
                 </div>
               )}
@@ -167,15 +171,13 @@ export function StreamSummaryCard({
               <Clock className="h-3 w-3" />
               Last seen
             </div>
-            <div className="font-medium">
-              {formatLastSeen(lastSeenDate)}
-            </div>
+            <div className="font-medium">{formatLastSeen(lastSeenDate)}</div>
           </div>
-          
+
           <div className="space-y-1">
             <div className="text-muted-foreground">Total bets</div>
             <div className="font-medium">
-              {stream.totalBets.toLocaleString()}
+              {stream.total_bets.toLocaleString()}
             </div>
           </div>
         </div>
@@ -184,23 +186,28 @@ export function StreamSummaryCard({
           <div className="flex items-center gap-2">
             <TrendingUp className="h-3 w-3 text-muted-foreground" />
             <span className="text-xs text-muted-foreground">Highest:</span>
-            <Badge 
-              variant="secondary" 
+            <Badge
+              variant="secondary"
               className={cn(
                 "text-xs font-mono",
-                stream.highestMultiplier >= 1000 && "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400",
-                stream.highestMultiplier >= 10000 && "bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400",
-                stream.highestMultiplier >= 100000 && "bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400"
+                (stream.highest_multiplier ?? 0) >= 1000 &&
+                  "bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400",
+                (stream.highest_multiplier ?? 0) >= 10000 &&
+                  "bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400",
+                (stream.highest_multiplier ?? 0) >= 100000 &&
+                  "bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400"
               )}
             >
-              {formatMultiplier(stream.highestMultiplier)}
+              {formatMultiplier(stream.highest_multiplier ?? 0)}
             </Badge>
           </div>
 
           {/* Activity status indicator */}
           {showActivityIndicator && (
-            <Badge 
-              variant={isActive ? "default" : isRecent ? "secondary" : "outline"}
+            <Badge
+              variant={
+                isActive ? "default" : isRecent ? "secondary" : "outline"
+              }
               className="text-xs"
             >
               {isActive ? "Live" : isRecent ? "Recent" : "Idle"}
@@ -220,3 +227,5 @@ export function StreamSummaryCard({
     </Card>
   );
 }
+
+export { StreamSummaryCard };
