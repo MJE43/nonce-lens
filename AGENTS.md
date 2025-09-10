@@ -11,12 +11,13 @@ Kiro-style Spec Driven Development implementation on AI-DLC (AI Development Life
 
 ### Steering vs Specification
 
-**Steering** (`.kiro/steering/`) - Guide AI with project-wide rules and context  
+**Steering** (`.kiro/steering/`) - Guide AI with project-wide rules and context
 **Specs** (`.kiro/specs/`) - Formalize development process for individual features
 
 ### Active Specifications
 - Check `.kiro/specs/` for active specifications
 - Use `/kiro/spec-status [feature-name]` to check progress
+- `round-result-migration`: Replace `payout_multiplier` with Round Result across backend, live-streams, and frontend; remove client POST usage.
 
 ## Development Guidelines
 - Think in English, generate responses in English
@@ -59,7 +60,7 @@ Managed by `/kiro/steering` command. Updates here reflect command changes.
 
 ### Custom Steering Files
 <!-- Added by /kiro/steering-custom command -->
-<!-- Format: 
+<!-- Format:
 - `filename.md`: Mode - Pattern(s) - Description
   Mode: Always|Conditional|Manual
   Pattern: File patterns for Conditional mode

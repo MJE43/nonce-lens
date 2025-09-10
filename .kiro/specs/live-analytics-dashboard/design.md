@@ -15,45 +15,45 @@ graph TB
         A --> A2[Poll Controls]
         A --> A3[Export CSV]
         A --> A4[Freeze UI Toggle]
-        
+
         B[Left Column] --> B1[Stream Info]
         B --> B2[Pinned KPIs]
         B --> B3[Density Sparkline]
-        
+
         C[Right Column] --> C1[Multiplier Tracker]
         C --> C2[Alerts Panel]
         C --> C3[Top-N Peaks List]
-        
+
         D[Full Width] --> D1[Live Filters Bar]
         D --> D2[Virtualized Table]
         D --> D3[Distance Column]
         D --> D4[Bookmark Stars]
     end
-    
+
     subgraph "State Management"
         E[Analytics Hooks] --> E1[Incremental Calculators]
         E --> E2[Real-time Polling]
         E --> E3[Alert Engine]
         E --> E4[Snapshot Manager]
-        
+
         F[Calculators] --> F1[Welford Stats]
         F --> F2[Histogram Quantiles]
         F --> F3[EMA Calculator]
         F --> F4[Rolling Windows]
     end
-    
+
     subgraph "Backend Enhancements"
         G[Enhanced APIs] --> G1[Tail with Distance]
         G --> G2[Metrics Aggregation]
         G --> G3[Bookmarks CRUD]
         G --> G4[Snapshots CRUD]
-        
+
         H[Database] --> H1[Live Streams]
         H --> H2[Live Bets]
         H --> H3[Bookmarks]
         H --> H4[Snapshots]
     end
-    
+
     subgraph "Data Flow"
         I[Betting Ingestion] --> H
         H --> G
@@ -89,16 +89,16 @@ interface DashboardState {
   // Live data
   bets: BetRecord[];
   lastId: number;
-  
+
   // KPI state
   kpis: LiveKPIs;
-  
+
   // Pinned multipliers
   pinnedMultipliers: PinnedMultiplier[];
-  
+
   // Filters
   filters: DashboardFilters;
-  
+
   // UI state
   isPolling: boolean;
   freezeUI: boolean;
@@ -345,12 +345,11 @@ interface KeyboardShortcutsProps {
 const KEYBOARD_SHORTCUTS = {
   '/': 'focus-filter',
   'j': 'scroll-down',
-  'k': 'scroll-up', 
+  'k': 'scroll-up',
   'g': 'go-to-nonce',
   'p': 'toggle-pause',
   'f': 'toggle-freeze'
 } as const;
-```
 ```
 
 ### Backend Enhancements
@@ -407,7 +406,7 @@ class MultiplierAnalytics(BaseModel):
 ```python
 class Bookmark(SQLModel, table=True):
     __tablename__ = "live_bookmarks"
-    
+
     id: Optional[int] = Field(default=None, primary_key=True)
     stream_id: UUID = Field(nullable=False)
     nonce: int = Field(nullable=False)
@@ -417,7 +416,7 @@ class Bookmark(SQLModel, table=True):
 
 class Snapshot(SQLModel, table=True):
     __tablename__ = "live_snapshots"
-    
+
     id: Optional[int] = Field(default=None, primary_key=True)
     stream_id: UUID = Field(nullable=False)
     name: str = Field(nullable=False)
@@ -538,7 +537,7 @@ class HistogramQuantileEstimator {
   getQuantile(q: number): number {
     const totalCount = this.bins.reduce((sum, count) => sum + count, 0);
     const targetCount = totalCount * q;
-    
+
     let cumulativeCount = 0;
     for (let i = 0; i < this.bins.length; i++) {
       cumulativeCount += this.bins[i];
@@ -593,7 +592,7 @@ class RingBuffer<T> {
 
   toArray(): T[] {
     if (this.size === 0) return [];
-    
+
     const result: T[] = [];
     for (let i = 0; i < this.size; i++) {
       const index = (this.head - this.size + i + this.capacity) % this.capacity;
@@ -665,7 +664,7 @@ class RollingWindowCalculator {
     const values = this.window.map(item => item.value);
     const mean = values.reduce((sum, val) => sum + val, 0) / values.length;
     const max = Math.max(...values);
-    
+
     return {mean, max, count: values.length};
   }
 }
@@ -739,18 +738,18 @@ class AlertEngine {
   private evaluateClusterAlert(rule: AlertRule, bet: BetRecord, now: Date): boolean {
     const config = rule.config as ClusterAlertConfig;
     const windowKey = `cluster_${rule.id}`;
-    
+
     if (!this.slidingWindows.has(windowKey)) {
       this.slidingWindows.set(windowKey, []);
     }
 
     const window = this.slidingWindows.get(windowKey)!;
-    
+
     // Add current bet if it meets minimum multiplier
-    if (bet.payout_multiplier >= config.minMultiplier) {
+    if (bet.round_result >= config.minMultiplier) {
       window.push({
         nonce: bet.nonce,
-        multiplier: bet.payout_multiplier,
+        multiplier: bet.round_result,
         timestamp: now
       });
     }
@@ -758,11 +757,11 @@ class AlertEngine {
     // Prune window by both nonce and time
     const cutoffTime = new Date(now.getTime() - config.windowSeconds * 1000);
     const cutoffNonce = bet.nonce - config.windowNonces;
-    
-    const prunedWindow = window.filter(item => 
+
+    const prunedWindow = window.filter(item =>
       item.timestamp >= cutoffTime && item.nonce >= cutoffNonce
     );
-    
+
     this.slidingWindows.set(windowKey, prunedWindow);
 
     return prunedWindow.length >= config.minCount;
@@ -770,7 +769,7 @@ class AlertEngine {
 
   private evaluateThresholdAlert(rule: AlertRule, bet: BetRecord): boolean {
     const config = rule.config as ThresholdAlertConfig;
-    return bet.payout_multiplier >= config.targetMultiplier;
+    return bet.round_result >= config.targetMultiplier;
   }
 
   private canFireAlert(ruleId: string, now: Date): boolean {
@@ -785,7 +784,7 @@ class AlertEngine {
     return {
       id: `alert_${Date.now()}_${Math.random()}`,
       rule_id: rule.id,
-      multiplier: bet.payout_multiplier,
+      multiplier: bet.round_result,
       type: rule.type,
       message: this.generateAlertMessage(rule, bet),
       nonce: bet.nonce,
@@ -797,14 +796,14 @@ class AlertEngine {
   private generateAlertMessage(rule: AlertRule, bet: BetRecord): string {
     switch (rule.type) {
       case 'gap':
-        return `Gap alert: ${bet.payout_multiplier}x at nonce ${bet.nonce} exceeded threshold`;
+        return `Gap alert: ${bet.round_result}x at nonce ${bet.nonce} exceeded threshold`;
       case 'cluster':
         const config = rule.config as ClusterAlertConfig;
         return `Cluster alert: ${config.minCount}+ hits ≥${config.minMultiplier}x detected`;
       case 'threshold':
-        return `Threshold alert: ${bet.payout_multiplier}x hit at nonce ${bet.nonce}`;
+        return `Threshold alert: ${bet.round_result}x hit at nonce ${bet.nonce}`;
       default:
-        return `Alert triggered for ${bet.payout_multiplier}x`;
+        return `Alert triggered for ${bet.round_result}x`;
     }
   }
 }
@@ -816,28 +815,28 @@ class AlertEngine {
 interface AnalyticsState {
   // Per-multiplier tracking
   multiplierStats: Map<number, MultiplierStatsCalculator>;
-  
+
   // Density tracking
   densityManager: DensityBucketManager;
-  
+
   // KPI calculations
   kpis: LiveKPIs;
   hitRateEMA: EMACalculator;
-  
+
   // Alert engine
   alertEngine: AlertEngine;
   recentAlerts: AlertEvent[];
-  
+
   // Rolling window stats
   rollingWindow: RollingWindowCalculator;
-  
+
   // Top peaks tracking
   topPeaks: PeakRecord[];
   maxPeaks: number;
-  
+
   // Bookmarks
   bookmarks: Bookmark[];
-  
+
   // Distance tracking (client-side fallback)
   lastNonceByMultiplier: Map<number, number>;
 }
@@ -976,7 +975,7 @@ interface PollingErrorStrategy {
   baseDelay: number;
   maxDelay: number;
   backoffMultiplier: number;
-  
+
   shouldRetry(error: Error, attemptCount: number): boolean;
   getDelay(attemptCount: number): number;
 }
@@ -986,16 +985,16 @@ const defaultPollingErrorStrategy: PollingErrorStrategy = {
   baseDelay: 500,
   maxDelay: 5000,
   backoffMultiplier: 2,
-  
+
   shouldRetry(error: Error, attemptCount: number): boolean {
     if (attemptCount >= this.maxRetries) return false;
-    
+
     const apiError = getErrorDetails(error);
     if (apiError?.status && apiError.status < 500) return false;
-    
+
     return true;
   },
-  
+
   getDelay(attemptCount: number): number {
     return Math.min(
       this.baseDelay * Math.pow(this.backoffMultiplier, attemptCount),
@@ -1108,5 +1107,4 @@ const defaultPollingErrorStrategy: PollingErrorStrategy = {
 1. **Local Storage**: All analytics data stays local
 2. **No Telemetry**: No usage analytics sent to external services
 3. **Secure Defaults**: Conservative alert thresholds by default
-
 This design maintains the local-first architecture while providing comprehensive real-time analytics capabilities. The incremental calculation approach ensures the dashboard remains responsive even with high-frequency betting data, and the modular component design allows for future enhancements without major architectural changes.
