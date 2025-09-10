@@ -2,7 +2,7 @@
 set -e
 
 # --- Setup Python API ---
-cd api
+cd pump-api
 
 # Create virtual environment if it doesn't exist
 if [ ! -d ".venv" ]; then
@@ -16,5 +16,5 @@ pip install -r requirements.txt
 deactivate
 
 # --- Setup Frontend ---
-cd ../frontend
+cd ../pump-frontend
 npm install
