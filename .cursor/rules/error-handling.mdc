@@ -1,8 +1,8 @@
 ---
-description: Error Handling & Logging Patterns
+description: Error Handling and Log Patterns
 globs: app/**/*.py,src/**/*.ts,src/**/*.tsx,pump-api/**/*.py,pump-frontend/**/*.ts,pump-frontend/**/*.tsx
+alwaysApply: false
 ---
-
 # Error Handling & Logging Patterns
 
 ## Backend Error Handling

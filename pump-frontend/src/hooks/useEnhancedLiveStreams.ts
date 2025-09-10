@@ -2,12 +2,16 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { liveStreamsApi } from "@/lib/api";
 import type { StreamListFilters, StreamBetsFilters } from "@/lib/api";
 import { useStreamNotifications } from "./useStreamNotifications";
-import { shouldRetry, showErrorToast, showSuccessToast } from "@/lib/errorHandling";
+import {
+  shouldRetry,
+  showErrorToast as libShowErrorToast,
+  showSuccessToast as libShowSuccessToast,
+} from "@/lib/errorHandling";
 
 // Enhanced live streams hook with error handling and notifications
 export const useEnhancedLiveStreams = (filters?: StreamListFilters) => {
   const queryClient = useQueryClient();
-  
+
   const query = useQuery({
     queryKey: ["liveStreams", filters],
     queryFn: () => liveStreamsApi.list(filters).then((res) => res.data),
@@ -19,9 +23,8 @@ export const useEnhancedLiveStreams = (filters?: StreamListFilters) => {
     retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
   });
 
-  const { showSuccessToast, showErrorToast, showWarningToast } = useStreamNotifications(
-    query.data?.streams
-  );
+  const { showSuccessToast, showErrorToast, showWarningToast } =
+    useStreamNotifications(query.data?.streams);
 
   const refetch = () => {
     return queryClient.invalidateQueries({ queryKey: ["liveStreams"] });
@@ -54,7 +57,10 @@ export const useEnhancedStreamDetail = (id: string) => {
 };
 
 // Enhanced stream bets hook with error handling
-export const useEnhancedStreamBets = (id: string, filters?: StreamBetsFilters) => {
+export const useEnhancedStreamBets = (
+  id: string,
+  filters?: StreamBetsFilters
+) => {
   const query = useQuery({
     queryKey: ["liveStreams", id, "bets", filters],
     queryFn: () => liveStreamsApi.getBets(id, filters).then((res) => res.data),
@@ -78,10 +84,10 @@ export const useEnhancedDeleteStream = () => {
     mutationFn: (id: string) => liveStreamsApi.delete(id),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["liveStreams"] });
-      showSuccessToast("Stream deleted successfully");
+      libShowSuccessToast("Stream deleted successfully");
     },
     onError: (error) => {
-      showErrorToast(error, "Failed to delete stream");
+      libShowErrorToast(error, "Failed to delete stream");
     },
     retry: false, // Don't retry delete operations
   });
@@ -97,10 +103,10 @@ export const useEnhancedUpdateStream = () => {
     onSuccess: (data) => {
       queryClient.setQueryData(["liveStreams", data.id], data);
       queryClient.invalidateQueries({ queryKey: ["liveStreams"] });
-      showSuccessToast("Stream updated successfully");
+      libShowSuccessToast("Stream updated successfully");
     },
     onError: (error) => {
-      showErrorToast(error, "Failed to update stream");
+      libShowErrorToast(error, "Failed to update stream");
     },
     retry: (failureCount, error: any) => {
       return shouldRetry(error) && failureCount < 2;

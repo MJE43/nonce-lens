@@ -18,20 +18,18 @@ from app.models.live_streams import LiveStream, LiveBet, SeedAlias
 def test_engine():
     """Create an in-memory SQLite engine for testing."""
     engine = create_engine(
-        "sqlite:///:memory:", 
-        echo=False,
-        connect_args={"check_same_thread": False}
+        "sqlite:///:memory:", echo=False, connect_args={"check_same_thread": False}
     )
-    
+
     # Enable foreign key constraints for SQLite
     from sqlalchemy import event
-    
+
     @event.listens_for(engine, "connect")
     def set_sqlite_pragma(dbapi_connection, connection_record):
         cursor = dbapi_connection.cursor()
         cursor.execute("PRAGMA foreign_keys=ON")
         cursor.close()
-    
+
     SQLModel.metadata.create_all(engine)
     return engine
 
@@ -53,10 +51,10 @@ class TestLiveStreamModel:
             client_seed="test_client_seed",
             notes="Test stream notes"
         )
-        
+
         test_session.add(stream)
         test_session.commit()
-        
+
         # Verify the stream was created
         assert stream.id is not None
         assert isinstance(stream.id, UUID)
@@ -72,10 +70,10 @@ class TestLiveStreamModel:
             server_seed_hashed="test_hash",
             client_seed="test_client"
         )
-        
+
         test_session.add(stream)
         test_session.commit()
-        
+
         # Check defaults
         assert stream.id is not None
         assert stream.notes is None
@@ -91,17 +89,17 @@ class TestLiveStreamModel:
         )
         test_session.add(stream1)
         test_session.commit()
-        
+
         # Try to create second stream with same seed pair
         stream2 = LiveStream(
             server_seed_hashed="same_hash",
             client_seed="same_client"
         )
         test_session.add(stream2)
-        
+
         with pytest.raises(IntegrityError) as exc_info:
             test_session.commit()
-        
+
         assert "UNIQUE constraint failed" in str(exc_info.value)
 
     def test_different_seed_pairs_allowed(self, test_session):
@@ -118,10 +116,10 @@ class TestLiveStreamModel:
             server_seed_hashed="hash1",
             client_seed="client2"  # Same server, different client
         )
-        
+
         test_session.add_all([stream1, stream2, stream3])
         test_session.commit()
-        
+
         # All should be created successfully
         assert stream1.id is not None
         assert stream2.id is not None
@@ -134,9 +132,9 @@ class TestLiveStreamModel:
             stream = LiveStream(client_seed="test")
             test_session.add(stream)
             test_session.commit()
-        
+
         test_session.rollback()
-        
+
         # Missing client_seed
         with pytest.raises((IntegrityError, TypeError)):
             stream = LiveStream(server_seed_hashed="test")
@@ -165,27 +163,26 @@ class TestLiveBetModel:
             antebot_bet_id="bet_123",
             nonce=1,
             amount=10.0,
-            payout_multiplier=2.5,
             payout=25.0,
             difficulty="medium",
             round_target=100.0,
-            round_result=250.0
+            round_result=2.5,
         )
-        
+
         test_session.add(bet)
         test_session.commit()
-        
+
         # Verify the bet was created
         assert bet.id is not None
         assert bet.stream_id == sample_stream.id
         assert bet.antebot_bet_id == "bet_123"
         assert bet.nonce == 1
         assert bet.amount == 10.0
-        assert bet.payout_multiplier == 2.5
+        assert bet.round_result == 2.5
         assert bet.payout == 25.0
         assert bet.difficulty == "medium"
         assert bet.round_target == 100.0
-        assert bet.round_result == 250.0
+        assert bet.round_result == 2.5
         assert isinstance(bet.received_at, datetime)
 
     def test_bet_defaults(self, test_session, sample_stream):
@@ -195,20 +192,20 @@ class TestLiveBetModel:
             antebot_bet_id="bet_456",
             nonce=2,
             amount=5.0,
-            payout_multiplier=1.5,
             payout=7.5,
-            difficulty="easy"
+            difficulty="easy",
+            round_result=1.5,
         )
-        
+
         test_session.add(bet)
         test_session.commit()
-        
+
         # Check defaults
         assert bet.id is not None
         assert bet.received_at is not None
         assert bet.date_time is None
         assert bet.round_target is None
-        assert bet.round_result is None
+        assert bet.round_result == 1.5
 
     def test_nonce_constraint(self, test_session, sample_stream):
         """Test that nonce must be >= 1."""
@@ -218,28 +215,28 @@ class TestLiveBetModel:
             antebot_bet_id="bet_valid",
             nonce=1,
             amount=10.0,
-            payout_multiplier=2.0,
             payout=20.0,
-            difficulty="easy"
+            difficulty="easy",
+            round_result=2.0,
         )
         test_session.add(bet_valid)
         test_session.commit()
-        
+
         # Invalid nonce (0)
         bet_invalid = LiveBet(
             stream_id=sample_stream.id,
             antebot_bet_id="bet_invalid",
             nonce=0,
             amount=10.0,
-            payout_multiplier=2.0,
             payout=20.0,
-            difficulty="easy"
+            difficulty="easy",
+            round_result=2.0,
         )
         test_session.add(bet_invalid)
-        
+
         with pytest.raises(IntegrityError) as exc_info:
             test_session.commit()
-        
+
         assert "ck_live_bets_nonce_ge_1" in str(exc_info.value)
 
     def test_amount_constraint(self, test_session, sample_stream):
@@ -250,28 +247,28 @@ class TestLiveBetModel:
             antebot_bet_id="bet_valid",
             nonce=1,
             amount=0.0,
-            payout_multiplier=2.0,
             payout=0.0,
-            difficulty="easy"
+            difficulty="easy",
+            round_result=2.0,
         )
         test_session.add(bet_valid)
         test_session.commit()
-        
+
         # Invalid amount (negative)
         bet_invalid = LiveBet(
             stream_id=sample_stream.id,
             antebot_bet_id="bet_invalid",
             nonce=2,
             amount=-5.0,
-            payout_multiplier=2.0,
             payout=20.0,
-            difficulty="easy"
+            difficulty="easy",
+            round_result=2.0,
         )
         test_session.add(bet_invalid)
-        
+
         with pytest.raises(IntegrityError) as exc_info:
             test_session.commit()
-        
+
         assert "ck_live_bets_amount_ge_0" in str(exc_info.value)
 
     def test_payout_constraint(self, test_session, sample_stream):
@@ -282,64 +279,64 @@ class TestLiveBetModel:
             antebot_bet_id="bet_valid",
             nonce=1,
             amount=10.0,
-            payout_multiplier=0.0,
             payout=0.0,
-            difficulty="easy"
+            difficulty="easy",
+            round_result=0.0,
         )
         test_session.add(bet_valid)
         test_session.commit()
-        
+
         # Invalid payout (negative)
         bet_invalid = LiveBet(
             stream_id=sample_stream.id,
             antebot_bet_id="bet_invalid",
             nonce=2,
             amount=10.0,
-            payout_multiplier=2.0,
             payout=-10.0,
-            difficulty="easy"
+            difficulty="easy",
+            round_result=2.0,
         )
         test_session.add(bet_invalid)
-        
+
         with pytest.raises(IntegrityError) as exc_info:
             test_session.commit()
-        
+
         assert "ck_live_bets_payout_ge_0" in str(exc_info.value)
 
     def test_difficulty_constraint(self, test_session, sample_stream):
         """Test that difficulty must be one of the allowed values."""
         # Valid difficulties
         valid_difficulties = ["easy", "medium", "hard", "expert"]
-        
+
         for i, difficulty in enumerate(valid_difficulties, 1):
             bet = LiveBet(
                 stream_id=sample_stream.id,
                 antebot_bet_id=f"bet_{i}",
                 nonce=i,
                 amount=10.0,
-                payout_multiplier=2.0,
                 payout=20.0,
-                difficulty=difficulty
+                difficulty=difficulty,
+                round_result=2.0,
             )
             test_session.add(bet)
-        
+
         test_session.commit()
-        
+
         # Invalid difficulty
         bet_invalid = LiveBet(
             stream_id=sample_stream.id,
             antebot_bet_id="bet_invalid",
             nonce=10,
             amount=10.0,
-            payout_multiplier=2.0,
             payout=20.0,
-            difficulty="invalid"
+            difficulty="invalid",
+            round_result=2.0,
         )
         test_session.add(bet_invalid)
-        
+
         with pytest.raises(IntegrityError) as exc_info:
             test_session.commit()
-        
+
         assert "ck_live_bets_difficulty" in str(exc_info.value)
 
     def test_round_target_constraint(self, test_session, sample_stream):
@@ -350,30 +347,30 @@ class TestLiveBetModel:
             antebot_bet_id="bet_valid",
             nonce=1,
             amount=10.0,
-            payout_multiplier=2.0,
             payout=20.0,
             difficulty="easy",
-            round_target=100.0
+            round_target=100.0,
+            round_result=2.0,
         )
         test_session.add(bet_valid)
         test_session.commit()
-        
+
         # Invalid round_target (zero)
         bet_invalid = LiveBet(
             stream_id=sample_stream.id,
             antebot_bet_id="bet_invalid",
             nonce=2,
             amount=10.0,
-            payout_multiplier=2.0,
             payout=20.0,
             difficulty="easy",
-            round_target=0.0
+            round_target=0.0,
+            round_result=2.0,
         )
         test_session.add(bet_invalid)
-        
+
         with pytest.raises(IntegrityError) as exc_info:
             test_session.commit()
-        
+
         assert "ck_live_bets_round_target_gt_0" in str(exc_info.value)
 
     def test_round_result_constraint(self, test_session, sample_stream):
@@ -384,30 +381,28 @@ class TestLiveBetModel:
             antebot_bet_id="bet_valid",
             nonce=1,
             amount=10.0,
-            payout_multiplier=2.0,
             payout=20.0,
             difficulty="easy",
-            round_result=0.0
+            round_result=0.0,
         )
         test_session.add(bet_valid)
         test_session.commit()
-        
+
         # Invalid round_result (negative)
         bet_invalid = LiveBet(
             stream_id=sample_stream.id,
             antebot_bet_id="bet_invalid",
             nonce=2,
             amount=10.0,
-            payout_multiplier=2.0,
             payout=20.0,
             difficulty="easy",
-            round_result=-5.0
+            round_result=-5.0,
         )
         test_session.add(bet_invalid)
-        
+
         with pytest.raises(IntegrityError) as exc_info:
             test_session.commit()
-        
+
         assert "ck_live_bets_round_result_ge_0" in str(exc_info.value)
 
     def test_unique_bet_per_stream_constraint(self, test_session, sample_stream):
@@ -418,28 +413,28 @@ class TestLiveBetModel:
             antebot_bet_id="duplicate_bet",
             nonce=1,
             amount=10.0,
-            payout_multiplier=2.0,
             payout=20.0,
-            difficulty="easy"
+            difficulty="easy",
+            round_result=2.0,
         )
         test_session.add(bet1)
         test_session.commit()
-        
+
         # Try to create second bet with same antebot_bet_id in same stream
         bet2 = LiveBet(
             stream_id=sample_stream.id,
             antebot_bet_id="duplicate_bet",
             nonce=2,
             amount=15.0,
-            payout_multiplier=3.0,
             payout=45.0,
-            difficulty="medium"
+            difficulty="medium",
+            round_result=3.0,
         )
         test_session.add(bet2)
-        
+
         with pytest.raises(IntegrityError) as exc_info:
             test_session.commit()
-        
+
         assert "UNIQUE constraint failed" in str(exc_info.value)
 
     def test_same_bet_id_different_streams_allowed(self, test_session):
@@ -455,30 +450,30 @@ class TestLiveBetModel:
         )
         test_session.add_all([stream1, stream2])
         test_session.commit()
-        
+
         # Create bets with same antebot_bet_id in different streams
         bet1 = LiveBet(
             stream_id=stream1.id,
             antebot_bet_id="same_bet_id",
             nonce=1,
             amount=10.0,
-            payout_multiplier=2.0,
             payout=20.0,
-            difficulty="easy"
+            difficulty="easy",
+            round_result=2.0,
         )
         bet2 = LiveBet(
             stream_id=stream2.id,
             antebot_bet_id="same_bet_id",
             nonce=1,
             amount=15.0,
-            payout_multiplier=3.0,
             payout=45.0,
-            difficulty="medium"
+            difficulty="medium",
+            round_result=3.0,
         )
-        
+
         test_session.add_all([bet1, bet2])
         test_session.commit()
-        
+
         # Both should be created successfully
         assert bet1.id is not None
         assert bet2.id is not None
@@ -493,10 +488,10 @@ class TestSeedAliasModel:
             server_seed_hashed="abc123def456",
             server_seed_plain="plain_seed_text"
         )
-        
+
         test_session.add(alias)
         test_session.commit()
-        
+
         # Verify the alias was created
         assert alias.server_seed_hashed == "abc123def456"
         assert alias.server_seed_plain == "plain_seed_text"
@@ -509,10 +504,10 @@ class TestSeedAliasModel:
             server_seed_hashed="test_hash",
             server_seed_plain="test_plain"
         )
-        
+
         test_session.add(alias)
         test_session.commit()
-        
+
         # Check defaults
         assert alias.first_seen is not None
         assert alias.last_seen is not None
@@ -526,17 +521,17 @@ class TestSeedAliasModel:
         )
         test_session.add(alias1)
         test_session.commit()
-        
+
         # Try to create second alias with same hash
         alias2 = SeedAlias(
             server_seed_hashed="unique_hash",
             server_seed_plain="plain2"
         )
         test_session.add(alias2)
-        
+
         with pytest.raises(IntegrityError) as exc_info:
             test_session.commit()
-        
+
         assert "UNIQUE constraint failed" in str(exc_info.value)
 
     def test_required_fields(self, test_session):
@@ -546,9 +541,9 @@ class TestSeedAliasModel:
             alias = SeedAlias(server_seed_plain="test")
             test_session.add(alias)
             test_session.commit()
-        
+
         test_session.rollback()
-        
+
         # Missing server_seed_plain
         with pytest.raises((IntegrityError, TypeError)):
             alias = SeedAlias(server_seed_hashed="test")
@@ -568,7 +563,7 @@ class TestRelationshipIntegrity:
         )
         test_session.add(stream)
         test_session.commit()
-        
+
         # Create multiple bets for the stream
         bets = []
         for i in range(3):
@@ -577,25 +572,25 @@ class TestRelationshipIntegrity:
                 antebot_bet_id=f"bet_{i}",
                 nonce=i + 1,
                 amount=10.0,
-                payout_multiplier=2.0,
+                round_result=2.0,
                 payout=20.0,
-                difficulty="easy"
+                difficulty="easy",
             )
             bets.append(bet)
-        
+
         test_session.add_all(bets)
         test_session.commit()
-        
+
         # Verify bets exist
         bet_count = test_session.exec(
             select(LiveBet).where(LiveBet.stream_id == stream.id)
         ).all()
         assert len(bet_count) == 3
-        
+
         # Delete the stream
         test_session.delete(stream)
         test_session.commit()
-        
+
         # Verify all bets were cascade deleted
         remaining_bets = test_session.exec(
             select(LiveBet).where(LiveBet.stream_id == stream.id)
@@ -611,16 +606,16 @@ class TestRelationshipIntegrity:
             antebot_bet_id="orphan_bet",
             nonce=1,
             amount=10.0,
-            payout_multiplier=2.0,
+            round_result=2.0,
             payout=20.0,
-            difficulty="easy"
+            difficulty="easy",
         )
-        
+
         test_session.add(bet)
-        
+
         with pytest.raises(IntegrityError) as exc_info:
             test_session.commit()
-        
+
         # Should be a foreign key constraint violation
         assert "FOREIGN KEY constraint failed" in str(exc_info.value)
 
@@ -633,35 +628,35 @@ class TestRelationshipIntegrity:
         )
         test_session.add(stream)
         test_session.commit()
-        
+
         # Create bets
         bet1 = LiveBet(
             stream_id=stream.id,
             antebot_bet_id="bet_1",
             nonce=1,
             amount=10.0,
-            payout_multiplier=2.0,
+            round_result=2.0,
             payout=20.0,
-            difficulty="easy"
+            difficulty="easy",
         )
         bet2 = LiveBet(
             stream_id=stream.id,
             antebot_bet_id="bet_2",
             nonce=2,
             amount=15.0,
-            payout_multiplier=3.0,
+            round_result=3.0,
             payout=45.0,
-            difficulty="medium"
+            difficulty="medium",
         )
-        
+
         test_session.add_all([bet1, bet2])
         test_session.commit()
-        
+
         # Query bets for the stream
         stream_bets = test_session.exec(
             select(LiveBet).where(LiveBet.stream_id == stream.id)
         ).all()
-        
+
         assert len(stream_bets) == 2
         bet_ids = {bet.antebot_bet_id for bet in stream_bets}
         assert bet_ids == {"bet_1", "bet_2"}

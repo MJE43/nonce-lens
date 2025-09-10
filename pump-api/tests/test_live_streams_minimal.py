@@ -45,27 +45,56 @@ async def test_health_check(client: AsyncClient):
     assert response.status_code == 200
 
 
-async def test_simple_ingest(client: AsyncClient):
+async def test_simple_ingest(client: AsyncClient, monkeypatch):
     """Test simple ingestion."""
+    # Disable rate limiting for this test
+    from app.core.config import Settings
+    from app.routers.live_streams import get_settings as _orig_get_settings
+
+    def mock_get_settings():
+        s = _orig_get_settings()
+        return Settings(
+            database_url="sqlite+aiosqlite:///:memory:",
+            api_cors_origins=s.api_cors_origins,
+            max_nonces=s.max_nonces,
+            ingest_token=None,
+            api_host=s.api_host,
+            api_port=s.api_port,
+            ingest_rate_limit=1000000,
+        )
+
+    monkeypatch.setattr("app.routers.live_streams.get_settings", mock_get_settings)
+
+    # Mock rate limiter dependency to always allow requests
+    def mock_rate_limit_dependency():
+        async def _rate_limit():
+            return None  # No rate limiting
+
+        return _rate_limit
+
+    monkeypatch.setattr(
+        "app.routers.live_streams.get_rate_limit_dependency", mock_rate_limit_dependency
+    )
+
     payload = {
         "id": "test_bet",
         "nonce": 1,
         "amount": 10.0,
-        "payoutMultiplier": 2.0,
         "payout": 20.0,
         "difficulty": "easy",
+        "roundResult": 2.0,
         "clientSeed": "test_client",
-        "serverSeedHashed": "test_hash"
+        "serverSeedHashed": "test_hash",
     }
-    
+
     response = await client.post("/live/ingest", json=payload)
     print(f"Status: {response.status_code}")
     print(f"Response: {response.text}")
-    
+
     if response.status_code == 200:
         data = response.json()
         print(f"Data: {data}")
-    
+
     assert response.status_code == 200
 
 
