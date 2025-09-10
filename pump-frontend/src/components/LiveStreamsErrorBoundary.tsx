@@ -2,7 +2,13 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, ArrowLeft, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import ErrorBoundary from "./ErrorBoundary";
 
 interface LiveStreamsErrorFallbackProps {
@@ -10,9 +16,9 @@ interface LiveStreamsErrorFallbackProps {
   resetError?: () => void;
 }
 
-const LiveStreamsErrorFallback: React.FC<LiveStreamsErrorFallbackProps> = ({ 
-  error, 
-  resetError 
+const LiveStreamsErrorFallback: React.FC<LiveStreamsErrorFallbackProps> = ({
+  error,
+  resetError,
 }) => {
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-900 relative overflow-hidden">
@@ -23,7 +29,9 @@ const LiveStreamsErrorFallback: React.FC<LiveStreamsErrorFallbackProps> = ({
             <div className="flex items-center gap-3">
               <AlertTriangle className="w-6 h-6 text-red-400" />
               <div>
-                <CardTitle className="text-red-400">Live Streams Error</CardTitle>
+                <CardTitle className="text-red-400">
+                  Live Streams Error
+                </CardTitle>
                 <CardDescription className="text-red-300">
                   An error occurred while loading the live streams interface
                 </CardDescription>
@@ -33,15 +41,19 @@ const LiveStreamsErrorFallback: React.FC<LiveStreamsErrorFallbackProps> = ({
           <CardContent className="space-y-4">
             {error && (
               <div className="bg-slate-900/50 p-4 rounded border border-slate-700">
-                <h4 className="text-sm font-medium text-slate-300 mb-2">Error Details:</h4>
+                <h4 className="text-sm font-medium text-slate-300 mb-2">
+                  Error Details:
+                </h4>
                 <p className="text-sm text-slate-400 font-mono break-all">
                   {error.message}
                 </p>
               </div>
             )}
-            
+
             <div className="bg-slate-900/30 p-4 rounded border border-slate-700">
-              <h4 className="text-sm font-medium text-slate-300 mb-2">What you can try:</h4>
+              <h4 className="text-sm font-medium text-slate-300 mb-2">
+                What you can try:
+              </h4>
               <ul className="text-sm text-slate-400 space-y-1">
                 <li>• Check your internet connection</li>
                 <li>• Verify the backend API is running</li>
@@ -49,7 +61,7 @@ const LiveStreamsErrorFallback: React.FC<LiveStreamsErrorFallbackProps> = ({
                 <li>• Return to the main streams list</li>
               </ul>
             </div>
-            
+
             <div className="flex flex-wrap gap-3 pt-2">
               {resetError && (
                 <Button
@@ -61,7 +73,7 @@ const LiveStreamsErrorFallback: React.FC<LiveStreamsErrorFallbackProps> = ({
                   Try Again
                 </Button>
               )}
-              
+
               <Button
                 variant="outline"
                 onClick={() => window.location.reload()}
@@ -70,7 +82,7 @@ const LiveStreamsErrorFallback: React.FC<LiveStreamsErrorFallbackProps> = ({
                 <RefreshCw className="w-4 h-4" />
                 Reload Page
               </Button>
-              
+
               <Button variant="outline" asChild>
                 <Link to="/live" className="flex items-center gap-2">
                   <ArrowLeft className="w-4 h-4" />
@@ -89,7 +101,9 @@ interface LiveStreamsErrorBoundaryProps {
   children: React.ReactNode;
 }
 
-const LiveStreamsErrorBoundary: React.FC<LiveStreamsErrorBoundaryProps> = ({ children }) => {
+const LiveStreamsErrorBoundary: React.FC<LiveStreamsErrorBoundaryProps> = ({
+  children,
+}) => {
   return (
     <ErrorBoundary
       fallback={<LiveStreamsErrorFallback />}

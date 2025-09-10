@@ -2,7 +2,7 @@
 
 ## Introduction
 
-This feature enhances the existing live streams functionality with a comprehensive real-time analytics dashboard. The dashboard provides live KPIs, multiplier tracking, distance analysis, alerts, and interactive filtering capabilities. All updates happen incrementally without rescanning, maintaining fast performance as new betting data streams in.
+This feature transforms the existing live streams functionality into a comprehensive real-time analytics dashboard with always-on, incremental updates. The dashboard provides pinned KPIs, per-multiplier tracking, distance analysis, hit density visualization, live filters, automated alerts, and advanced features like rolling window stats, bookmarks, and comparison modes. All calculations update incrementally from tail appends without rescanning, keeping the interface fast and responsive as betting data streams in continuously.
 
 ## Global Definitions
 
@@ -192,10 +192,65 @@ This feature enhances the existing live streams functionality with a comprehensi
 
 ### Requirement 16
 
-**User Story:** As a system integrator, I want clear API specifications for live analytics support, so that backend and frontend can work together seamlessly.
+**User Story:** As a gambling analyst, I want a top-N peaks list that updates live, so that I can track the highest multipliers with quick navigation as the feed grows.
 
 #### Acceptance Criteria
 
-1. WHEN calling /live/streams/{id}/tail?since_id= THEN the system SHALL return rows with fields: { id, nonce, payout_multiplier, date_time, amount, payout, difficulty, round_target, round_result, distance_prev_opt }
-2. WHEN requesting distance calculations THEN the system SHALL support query param include_distance=1 to return distance_prev_opt using window function: nonce - LAG(nonce) OVER (PARTITION BY payout_multiplier ORDER BY nonce)
-3. WHEN providing optional server compute THEN the system SHALL allow table to show distances for historical rows without client prepass
+1. WHEN maintaining peaks list THEN the system SHALL keep live list of highest N multipliers (default N=20) with jump links to table rows
+2. WHEN new peaks occur THEN the system SHALL update the list automatically and provide scroll-to-row functionality
+3. WHEN displaying peaks THEN the system SHALL show multiplier value, nonce, and timestamp with click-to-navigate
+
+### Requirement 17
+
+**User Story:** As a provably-fair gaming researcher, I want comparison modes for analyzing different data sets, so that I can perform A/B analysis between streams or time periods.
+
+#### Acceptance Criteria
+
+1. WHEN enabling compare mode THEN the system SHALL provide split view with two panels side-by-side
+2. WHEN configuring comparison THEN the system SHALL support current live stream vs historical run, or current vs another live stream
+3. WHEN applying filters THEN the system SHALL share filter controls between both panels
+4. WHEN displaying tables THEN the system SHALL maintain independent tail polling for each panel
+
+### Requirement 18
+
+**User Story:** As a betting pattern investigator, I want snapshot functionality, so that I can freeze current filtered views and compare them later against live data.
+
+#### Acceptance Criteria
+
+1. WHEN creating snapshots THEN the system SHALL freeze current filtered view into a named snapshot with timestamp
+2. WHEN storing snapshots THEN the system SHALL persist filter state and last_id checkpoint for replay
+3. WHEN viewing snapshots THEN the system SHALL replay rows ≤ checkpoint and show "now vs snapshot" comparison
+4. WHEN managing snapshots THEN the system SHALL allow naming, deleting, and listing saved snapshots
+
+### Requirement 19
+
+**User Story:** As a gambling analyst, I want enhanced UI controls and keyboard shortcuts, so that I can efficiently navigate the dashboard during live monitoring.
+
+#### Acceptance Criteria
+
+1. WHEN using freeze UI toggle THEN the system SHALL stop auto-scroll while continuing stats updates
+2. WHEN using keyboard shortcuts THEN the system SHALL support "/" focus filter, "J/K" scroll rows, "G" go to nonce, "P" toggle pause
+3. WHEN displaying multipliers THEN the system SHALL use color tiers with soft background colors mapped to multiplier ranges
+4. WHEN filtering results THEN the system SHALL show "x of y" indicators when filters hide rows from view
+
+### Requirement 20
+
+**User Story:** As a system integrator, I want optional server-side metrics endpoints, so that heavy calculations can be offloaded from the client when needed.
+
+#### Acceptance Criteria
+
+1. WHEN providing server metrics THEN the system SHALL offer /live/streams/{id}/metrics endpoint returning pre-aggregated stats per pinned multipliers
+2. WHEN supporting tail variants THEN the system SHALL add since_nonce parameter variant if reordering by nonce is needed
+3. WHEN calling enhanced tail THEN the system SHALL return rows with fields: { id, nonce, payout_multiplier, date_time, amount, payout, difficulty, round_target, round_result, distance_prev_opt }
+4. WHEN requesting distance calculations THEN the system SHALL support query param include_distance=1 to return distance_prev_opt using window function: nonce - LAG(nonce) OVER (PARTITION BY payout_multiplier ORDER BY nonce)
+
+### Requirement 21
+
+**User Story:** As a gambling analyst, I want comprehensive layout organization, so that all analytics components are efficiently arranged and accessible.
+
+#### Acceptance Criteria
+
+1. WHEN organizing layout THEN the system SHALL use header strip for live status, poll period, pause/resume, and export CSV controls
+2. WHEN displaying left column THEN the system SHALL show stream info, pinned KPIs, and density sparkline
+3. WHEN displaying right column THEN the system SHALL show per-multiplier tracker with select chips and alerts panel
+4. WHEN showing main content THEN the system SHALL use full width for filters bar and virtualized live table with distance column and row bookmarks

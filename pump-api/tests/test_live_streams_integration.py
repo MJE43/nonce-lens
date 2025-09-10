@@ -529,5 +529,104 @@ class TestCompleteIngestionWorkflow:
             assert response.json()["accepted"] is True
 
 
+class TestMetricsEndpoint:
+    """Test the metrics endpoint for pre-aggregated analytics."""
+
+    async def test_metrics_endpoint_empty_stream(self, client: AsyncClient):
+        """Test metrics endpoint with a stream that has no bets."""
+        # First create a stream by ingesting a bet
+        payload = {
+            "id": "metrics_test_bet",
+            "dateTime": "2025-09-08T20:31:11.123Z",
+            "nonce": 1,
+            "amount": 10.0,
+            "payoutMultiplier": 2.0,
+            "payout": 20.0,
+            "difficulty": "easy",
+            "clientSeed": "metrics_client",
+            "serverSeedHashed": "metrics_hash"
+        }
+        
+        ingest_response = await client.post("/live/ingest", json=payload)
+        assert ingest_response.status_code == 200
+        stream_id = ingest_response.json()["streamId"]
+        
+        # Test metrics endpoint
+        response = await client.get(f"/live/streams/{stream_id}/metrics")
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert "stream_id" in data
+        assert "total_bets" in data
+        assert "highest_multiplier" in data
+        assert "hit_rate" in data
+        assert "multiplier_stats" in data
+        assert "density_buckets" in data
+        assert "top_peaks" in data
+        
+        assert data["stream_id"] == stream_id
+        assert data["total_bets"] == 1
+        assert data["highest_multiplier"] == 2.0
+
+    async def test_metrics_endpoint_with_pinned_multipliers(self, client: AsyncClient):
+        """Test metrics endpoint with pinned multipliers parameter."""
+        # Create multiple bets with different multipliers
+        base_payload = {
+            "dateTime": "2025-09-08T20:31:11.123Z",
+            "amount": 10.0,
+            "payout": 20.0,
+            "difficulty": "easy",
+            "clientSeed": "pinned_client",
+            "serverSeedHashed": "pinned_hash"
+        }
+        
+        # Create bets with different multipliers
+        multipliers = [2.0, 5.0, 10.0, 2.0, 5.0]  # Some duplicates for gap calculation
+        stream_id = None
+        
+        for i, mult in enumerate(multipliers):
+            payload = {
+                **base_payload,
+                "id": f"pinned_bet_{i}",
+                "nonce": i + 1,
+                "payoutMultiplier": mult,
+                "payout": base_payload["amount"] * mult
+            }
+            
+            ingest_response = await client.post("/live/ingest", json=payload)
+            assert ingest_response.status_code == 200
+            if stream_id is None:
+                stream_id = ingest_response.json()["streamId"]
+        
+        # Test metrics with pinned multipliers
+        response = await client.get(
+            f"/live/streams/{stream_id}/metrics",
+            params={"multipliers": [2.0, 5.0]}
+        )
+        
+        if response.status_code != 200:
+            print(f"Response status: {response.status_code}")
+            print(f"Response body: {response.text}")
+        
+        assert response.status_code == 200
+        
+        data = response.json()
+        assert data["total_bets"] == 5
+        assert data["highest_multiplier"] == 10.0
+        assert len(data["multiplier_stats"]) == 2  # Only requested multipliers
+        
+        # Check that we have stats for both requested multipliers
+        multiplier_values = [stat["multiplier"] for stat in data["multiplier_stats"]]
+        assert 2.0 in multiplier_values
+        assert 5.0 in multiplier_values
+
+    async def test_metrics_endpoint_nonexistent_stream(self, client: AsyncClient):
+        """Test metrics endpoint with nonexistent stream ID."""
+        fake_uuid = "00000000-0000-0000-0000-000000000000"
+        response = await client.get(f"/live/streams/{fake_uuid}/metrics")
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

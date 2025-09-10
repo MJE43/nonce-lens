@@ -8,9 +8,10 @@ import {
 } from "@/hooks/useEnhancedLiveStreams";
 import { liveStreamsApi } from "../lib/api";
 import type { BetRecord, TailResponse } from "../lib/api";
+import { DistanceCalculator, formatDistance } from "../lib/distanceCalculator";
 import Breadcrumb from "../components/Breadcrumb";
 import OfflineIndicator from "@/components/OfflineIndicator";
-import { showSuccessToast, showErrorToast } from "@/lib/errorHandling";
+import { showSuccessToast, showErrorToast } from "../lib/errorHandling";
 import { 
   ArrowLeft, 
   Download, 
@@ -68,6 +69,7 @@ import {
 } from "@/components/ui/select";
 
 import { Skeleton } from "@/components/ui/skeleton";
+// import { formatDistance } from "date-fns";
 
 const LiveStreamDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -89,6 +91,9 @@ const LiveStreamDetail = () => {
   const [highFrequencyMode, setHighFrequencyMode] = useState(true); // Default to high frequency for betting
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   
+  // Distance calculator for client-side fallback
+  const distanceCalculatorRef = useRef<DistanceCalculator>(new DistanceCalculator());
+  
   // Hooks
   const { data: streamDetail, isLoading: streamLoading, error: streamError, refetch: refetchStream } = useEnhancedStreamDetail(id!);
   const { data: initialBetsData, isLoading: betsLoading, refetch: refetchBets } = useEnhancedStreamBets(id!, {
@@ -108,6 +113,12 @@ const LiveStreamDetail = () => {
 
   // Initialize bets and set up polling
   useEffect(() => {
+    // console.log('LiveStreamDetail: initialBetsData changed', {
+    //   hasData: !!initialBetsData,
+    //   betsCount: initialBetsData?.bets?.length || 0,
+    //   total: initialBetsData?.total
+    // });
+    
     if (initialBetsData?.bets) {
       setBets(initialBetsData.bets);
       // Set lastId to the highest ID for tail polling
@@ -127,7 +138,7 @@ const LiveStreamDetail = () => {
 
     const pollForUpdates = async () => {
       try {
-        const response = await liveStreamsApi.tail(id, lastId);
+        const response = await liveStreamsApi.tail(id, lastId, true); // Request distance calculations
         const tailData: TailResponse = response.data;
         
         if (tailData.bets.length > 0) {
@@ -233,28 +244,10 @@ const LiveStreamDetail = () => {
   // Filter bets based on minMultiplier (using round_result instead of payout_multiplier)
   const filteredBets = minMultiplier 
     ? bets.filter(bet => {
-        const multiplier = typeof bet.round_result === 'string' 
-          ? parseFloat(bet.round_result) 
-          : bet.round_result;
-        return multiplier && multiplier >= minMultiplier;
+        const multiplier = bet.round_result;
+        return multiplier != null && multiplier >= minMultiplier;
       })
     : bets;
-
-  // Debug logging (remove in production)
-  if (process.env.NODE_ENV === 'development') {
-    console.log('Debug info:', {
-      totalBets: bets.length,
-      minMultiplier,
-      filteredBets: filteredBets.length,
-      sampleBets: bets.slice(0, 3).map(bet => ({
-        id: bet.id,
-        nonce: bet.nonce,
-        round_result: bet.round_result,
-        payout_multiplier: bet.payout_multiplier,
-        type: typeof bet.round_result
-      }))
-    });
-  }
 
   // Sort bets based on orderBy
   const sortedBets = [...filteredBets].sort((a, b) => {
@@ -264,6 +257,16 @@ const LiveStreamDetail = () => {
       return b.id - a.id;
     }
   });
+
+  // Debug logging (remove in production)
+  if (process.env.NODE_ENV === 'development' && bets.length > 0) {
+    console.log('LiveStreamDetail:', {
+      totalBets: bets.length,
+      filteredBets: filteredBets.length,
+      sortedBets: sortedBets.length,
+      minMultiplier
+    });
+  }
 
   // Route parameter validation
   if (!id) {
@@ -720,6 +723,7 @@ const LiveStreamDetail = () => {
                             {bet.round_result?.toFixed(2) || '0.00'}x
                           </Badge>
                         </TableCell>
+                        {/* Distance column temporarily removed */}
                         <TableCell className="font-mono text-slate-300">
                           {bet.payout.toFixed(8)}
                         </TableCell>

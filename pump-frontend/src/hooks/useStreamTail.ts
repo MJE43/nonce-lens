@@ -6,6 +6,7 @@ export interface UseStreamTailOptions {
   streamId: string;
   enabled?: boolean;
   pollingInterval?: number;
+  includeDistance?: boolean;
   onNewBets?: (newBets: BetRecord[]) => void;
   onError?: (error: Error) => void;
 }
@@ -32,6 +33,7 @@ export function useStreamTail(options: UseStreamTailOptions): UseStreamTailResul
     streamId, 
     enabled = true, 
     pollingInterval = 1500, // 1.5 seconds default
+    includeDistance = false,
     onNewBets,
     onError 
   } = options;
@@ -49,7 +51,7 @@ export function useStreamTail(options: UseStreamTailOptions): UseStreamTailResul
   const tailQuery = useQuery({
     queryKey: ['streamTail', streamId, lastId],
     queryFn: async (): Promise<TailResponse> => {
-      const response = await liveStreamsApi.tail(streamId, lastId);
+      const response = await liveStreamsApi.tail(streamId, lastId, includeDistance);
       return response.data;
     },
     enabled: false, // We'll trigger this manually

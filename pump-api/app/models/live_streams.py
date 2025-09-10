@@ -62,3 +62,35 @@ class SeedAlias(SQLModel, table=True):
     server_seed_plain: str = Field(nullable=False)
     first_seen: datetime = Field(default_factory=datetime.utcnow, nullable=False)
     last_seen: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+
+class LiveBookmark(SQLModel, table=True):
+    __tablename__ = "live_bookmarks"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    stream_id: UUID = Field(nullable=False)
+    nonce: int = Field(nullable=False)
+    multiplier: float = Field(nullable=False)
+    note: Optional[str] = Field(default=None, nullable=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("idx_live_bookmarks_stream_nonce", "stream_id", "nonce"),
+        ForeignKeyConstraint(["stream_id"], ["live_streams.id"], ondelete="CASCADE"),
+    )
+
+
+class LiveSnapshot(SQLModel, table=True):
+    __tablename__ = "live_snapshots"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    stream_id: UUID = Field(nullable=False)
+    name: str = Field(nullable=False)
+    filter_state: str = Field(nullable=False)  # JSON string of filter configuration
+    last_id_checkpoint: int = Field(nullable=False)
+    created_at: datetime = Field(default_factory=datetime.utcnow, nullable=False)
+
+    __table_args__ = (
+        Index("idx_live_snapshots_stream", "stream_id"),
+        ForeignKeyConstraint(["stream_id"], ["live_streams.id"], ondelete="CASCADE"),
+    )

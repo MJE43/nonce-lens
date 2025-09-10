@@ -53,6 +53,7 @@ class BetRecord(BaseModel):
     difficulty: str = Field(..., description="Difficulty level")
     round_target: Optional[float] = Field(None, description="Round target")
     round_result: Optional[float] = Field(None, description="Round result")
+    distance_prev_opt: Optional[int] = Field(None, description="Distance to previous same-multiplier hit")
 
 
 class StreamSummary(BaseModel):
@@ -135,3 +136,89 @@ class StreamDeleteResponse(BaseModel):
     deleted: bool = Field(..., description="Whether the stream was successfully deleted")
     stream_id: UUID = Field(..., description="ID of the deleted stream")
     bets_deleted: int = Field(..., description="Number of bets that were deleted with the stream")
+
+
+class BookmarkCreate(BaseModel):
+    """Request model for creating a bookmark."""
+    
+    nonce: int = Field(..., description="Nonce of the bet to bookmark")
+    multiplier: float = Field(..., description="Multiplier of the bet to bookmark")
+    note: Optional[str] = Field(None, description="Optional note for the bookmark")
+
+
+class BookmarkUpdate(BaseModel):
+    """Request model for updating a bookmark."""
+    
+    note: Optional[str] = Field(None, description="Updated note for the bookmark")
+
+
+class BookmarkResponse(BaseModel):
+    """Response model for bookmark data."""
+    
+    id: int = Field(..., description="Bookmark ID")
+    stream_id: UUID = Field(..., description="Stream ID")
+    nonce: int = Field(..., description="Nonce of the bookmarked bet")
+    multiplier: float = Field(..., description="Multiplier of the bookmarked bet")
+    note: Optional[str] = Field(None, description="Bookmark note")
+    created_at: datetime = Field(..., description="Bookmark creation timestamp")
+
+
+class SnapshotCreate(BaseModel):
+    """Request model for creating a snapshot."""
+    
+    name: str = Field(..., description="Name for the snapshot")
+    filter_state: dict = Field(..., description="Filter configuration state")
+    last_id_checkpoint: int = Field(..., description="Last bet ID at time of snapshot")
+
+
+class SnapshotResponse(BaseModel):
+    """Response model for snapshot data."""
+    
+    id: int = Field(..., description="Snapshot ID")
+    stream_id: UUID = Field(..., description="Stream ID")
+    name: str = Field(..., description="Snapshot name")
+    filter_state: dict = Field(..., description="Filter configuration state")
+    last_id_checkpoint: int = Field(..., description="Last bet ID at time of snapshot")
+    created_at: datetime = Field(..., description="Snapshot creation timestamp")
+
+
+class SnapshotDeleteResponse(BaseModel):
+    """Response model for snapshot deletion."""
+    
+    deleted: bool = Field(..., description="Whether the snapshot was successfully deleted")
+    snapshot_id: int = Field(..., description="ID of the deleted snapshot")
+
+
+class PeakRecord(BaseModel):
+    """Individual peak record for top peaks list."""
+    
+    multiplier: float = Field(..., description="Peak multiplier value")
+    nonce: int = Field(..., description="Nonce where peak occurred")
+    timestamp: datetime = Field(..., description="When the peak occurred")
+    id: int = Field(..., description="Database ID for jump-to-row functionality")
+
+
+class MultiplierMetrics(BaseModel):
+    """Per-multiplier statistics for analytics."""
+    
+    multiplier: float = Field(..., description="Multiplier value")
+    count: int = Field(..., description="Number of occurrences")
+    last_nonce: int = Field(..., description="Most recent nonce for this multiplier")
+    mean_gap: float = Field(..., description="Mean gap between occurrences")
+    std_gap: float = Field(..., description="Standard deviation of gaps")
+    p90_gap: float = Field(..., description="90th percentile gap")
+    max_gap: int = Field(..., description="Maximum gap observed")
+    eta_theoretical: Optional[float] = Field(None, description="Theoretical ETA based on probability tables")
+    eta_observed: float = Field(..., description="Observed ETA based on mean gap")
+
+
+class StreamMetrics(BaseModel):
+    """Pre-aggregated analytics for a stream."""
+    
+    stream_id: UUID = Field(..., description="Stream ID")
+    total_bets: int = Field(..., description="Total number of bets in stream")
+    highest_multiplier: float = Field(..., description="Highest multiplier achieved")
+    hit_rate: float = Field(..., description="Hits per minute")
+    multiplier_stats: List[MultiplierMetrics] = Field(default_factory=list, description="Per-multiplier statistics")
+    density_buckets: dict[str, int] = Field(default_factory=dict, description="Density buckets (bucket_id -> count)")
+    top_peaks: List[PeakRecord] = Field(default_factory=list, description="Top N highest multipliers")

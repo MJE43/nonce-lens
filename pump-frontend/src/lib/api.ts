@@ -511,6 +511,7 @@ export interface BetRecord {
   difficulty: "easy" | "medium" | "hard" | "expert";
   round_target?: number;
   round_result?: number;
+  distance_prev_opt?: number | null;
 }
 
 export interface TailResponse {
@@ -528,6 +529,7 @@ export interface StreamBetsFilters {
   limit?: number;
   offset?: number;
   order?: "nonce_asc" | "id_desc";
+  include_distance?: boolean;
 }
 
 // Live Streams API
@@ -544,9 +546,12 @@ export const liveStreamsApi = {
     apiClient.get<{ total: number; bets: BetRecord[] }>(`/live/streams/${id}/bets`, { params }),
 
   // Get incremental updates
-  tail: (id: string, sinceId: number) =>
+  tail: (id: string, sinceId: number, includeDistance?: boolean) =>
     apiClient.get<TailResponse>(`/live/streams/${id}/tail`, { 
-      params: { since_id: sinceId } 
+      params: { 
+        since_id: sinceId,
+        ...(includeDistance && { include_distance: includeDistance })
+      } 
     }),
 
   // Delete stream
