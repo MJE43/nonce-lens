@@ -491,7 +491,7 @@ export function LiveBetTable({
                     {bet.nonce.toLocaleString()}
                   </TableCell>
                   <TableCell className="text-sm">
-                    {formatDateTime(bet.dateTime, bet.receivedAt)}
+                    {formatDateTime(bet.date_time, bet.received_at)}
                   </TableCell>
                   <TableCell className="font-mono text-sm">
                     {formatAmount(bet.amount)}

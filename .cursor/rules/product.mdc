@@ -1,3 +1,8 @@
+---
+description: Product Overview
+globs:
+alwaysApply: true
+---
 # Product Overview
 
 ## Pump Analyzer Web

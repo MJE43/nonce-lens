@@ -1,0 +1,562 @@
+---
+description: Validation & Security Guidelines
+globs: app/**/*.py,src/**/*.ts,src/**/*.tsx,pump-api/**/*.py,pump-frontend/**/*.ts,pump-frontend/**/*.tsx
+---
+
+# Validation & Security Guidelines
+
+## Input Validation
+
+### Backend Validation with Pydantic
+Use comprehensive Pydantic validation for all API inputs:
+
+```python
+from pydantic import BaseModel, Field, field_validator, model_validator
+from typing import List, Optional
+from enum import Enum
+
+class DifficultyEnum(str, Enum):
+    EASY = "easy"
+    MEDIUM = "medium"
+    HARD = "hard"
+    EXPERT = "expert"
+
+class RunCreateRequest(BaseModel):
+    server_seed: str = Field(
+        min_length=1,
+        max_length=256,
+        description="Server seed hex string",
+        examples=["564e967b90f03d0153fdcb2d2d1cc5a5057e0df78163611fe3801d6498e681ca"]
+    )
+    client_seed: str = Field(
+        min_length=1,
+        max_length=64,
+        description="Client seed string",
+        examples=["zXv1upuFns"]
+    )
+    start: int = Field(ge=1, description="Starting nonce (inclusive)")
+    end: int = Field(ge=1, description="Ending nonce (inclusive)")
+    difficulty: DifficultyEnum = Field(description="Pump difficulty level")
+    targets: List[float] = Field(
+        min_length=1,
+        max_length=100,
+        description="Target multipliers to search for"
+    )
+
+    @field_validator('server_seed')
+    @classmethod
+    def validate_server_seed(cls, v: str) -> str:
+        """Validate server seed format."""
+        v = v.strip().lower()
+
+        # Check if it's a valid hex string
+        try:
+            int(v, 16)
+        except ValueError:
+            raise ValueError('server_seed must be a valid hexadecimal string')
+
+        # Typical Stake seeds are 64 characters (32 bytes)
+        if len(v) not in [32, 64, 128]:
+            raise ValueError('server_seed must be 32, 64, or 128 hex characters')
+
+        return v
+
+    @field_validator('targets')
+    @classmethod
+    def validate_targets(cls, v: List[float]) -> List[float]:
+        """Validate target multipliers."""
+        if not v:
+            raise ValueError('targets cannot be empty')
+
+        for target in v:
+            if target <= 1.0:
+                raise ValueError('all targets must be greater than 1.0')
+            if target > 1000000:
+                raise ValueError('targets cannot exceed 1,000,000x')
+
+        # Remove duplicates and sort
+        return sorted(list(set(v)))
+
+    @model_validator(mode='after')
+    def validate_nonce_range(self) -> 'RunCreateRequest':
+        """Validate nonce range constraints."""
+        if self.end < self.start:
+            raise ValueError('end nonce must be >= start nonce')
+
+        range_size = self.end - self.start + 1
+        if range_size > 500000:  # MAX_NONCES from settings
+            raise ValueError(f'nonce range {range_size} exceeds maximum of 500,000')
+
+        return self
+```
+
+### Frontend Validation with Zod
+Mirror backend validation on the frontend:
+
+```typescript
+import { z } from 'zod';
+
+const DifficultySchema = z.enum(['easy', 'medium', 'hard', 'expert']);
+
+const RunCreateSchema = z.object({
+  server_seed: z
+    .string()
+    .min(1, 'Server seed is required')
+    .max(256, 'Server seed too long')
+    .refine(
+      (val) => /^[0-9a-fA-F]+$/.test(val.trim()),
+      'Server seed must be a valid hexadecimal string'
+    )
+    .refine(
+      (val) => [32, 64, 128].includes(val.trim().length),
+      'Server seed must be 32, 64, or 128 hex characters'
+    )
+    .transform(val => val.trim().toLowerCase()),
+
+  client_seed: z
+    .string()
+    .min(1, 'Client seed is required')
+    .max(64, 'Client seed too long')
+    .transform(val => val.trim()),
+
+  start: z
+    .number()
+    .int('Start must be an integer')
+    .min(1, 'Start nonce must be at least 1'),
+
+  end: z
+    .number()
+    .int('End must be an integer')
+    .min(1, 'End nonce must be at least 1'),
+
+  difficulty: DifficultySchema,
+
+  targets: z
+    .array(z.number())
+    .min(1, 'At least one target is required')
+    .max(100, 'Too many targets')
+    .refine(
+      (targets) => targets.every(t => t > 1.0),
+      'All targets must be greater than 1.0'
+    )
+    .refine(
+      (targets) => targets.every(t => t <= 1000000),
+      'Targets cannot exceed 1,000,000x'
+    )
+    .transform(targets => [...new Set(targets)].sort()),
+
+}).refine(
+  (data) => data.end >= data.start,
+  {
+    message: 'End nonce must be >= start nonce',
+    path: ['end']
+  }
+).refine(
+  (data) => (data.end - data.start + 1) <= 500000,
+  {
+    message: 'Nonce range cannot exceed 500,000',
+    path: ['end']
+  }
+);
+
+export type RunCreateData = z.infer<typeof RunCreateSchema>;
+```
+
+## Authentication & Authorization
+
+### API Authentication
+Implement token-based authentication for sensitive endpoints:
+
+```python
+from fastapi import Header, HTTPException, status, Depends
+from functools import wraps
+
+async def validate_ingest_token(x_ingest_token: str = Header(...)) -> str:
+    """Validate ingest token for live streams endpoints."""
+    settings = get_settings()
+
+    if not x_ingest_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Ingest token required",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    # Use constant-time comparison to prevent timing attacks
+    import hmac
+    if not hmac.compare_digest(x_ingest_token, settings.ingest_token):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid ingest token",
+            headers={"WWW-Authenticate": "Bearer"}
+        )
+
+    return x_ingest_token
+
+# Usage in routers
+@router.post("/ingest")
+async def ingest_bet(
+    request: IngestBetRequest,
+    session: Session = Depends(get_session),
+    token: str = Depends(validate_ingest_token)  # Protected endpoint
+):
+    # Implementation
+    pass
+```
+
+### Rate Limiting
+Implement rate limiting for abuse prevention:
+
+```python
+from datetime import datetime, timedelta
+from typing import Dict, Tuple
+import asyncio
+
+class RateLimiter:
+    """Token bucket rate limiter."""
+
+    def __init__(self, max_requests: int, window_seconds: int):
+        self.max_requests = max_requests
+        self.window_seconds = window_seconds
+        self.clients: Dict[str, Tuple[int, datetime]] = {}
+        self._lock = asyncio.Lock()
+
+    async def is_allowed(self, client_id: str) -> bool:
+        """Check if request is allowed for client."""
+        async with self._lock:
+            now = datetime.utcnow()
+
+            if client_id not in self.clients:
+                self.clients[client_id] = (1, now)
+                return True
+
+            count, first_request = self.clients[client_id]
+
+            # Reset window if expired
+            if now - first_request > timedelta(seconds=self.window_seconds):
+                self.clients[client_id] = (1, now)
+                return True
+
+            # Check if within limits
+            if count >= self.max_requests:
+                return False
+
+            # Increment counter
+            self.clients[client_id] = (count + 1, first_request)
+            return True
+
+    def cleanup_old_entries(self):
+        """Remove expired entries to prevent memory leaks."""
+        now = datetime.utcnow()
+        cutoff = now - timedelta(seconds=self.window_seconds * 2)
+
+        expired_clients = [
+            client_id for client_id, (_, timestamp) in self.clients.items()
+            if timestamp < cutoff
+        ]
+
+        for client_id in expired_clients:
+            del self.clients[client_id]
+
+# Usage in endpoints
+async def apply_rate_limit(client_id: str):
+    """Apply rate limiting with proper error response."""
+    rate_limiter = get_rate_limiter()
+
+    if not await rate_limiter.is_allowed(client_id):
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Rate limit exceeded. Please slow down.",
+            headers={
+                "Retry-After": "60",
+                "X-RateLimit-Limit": str(rate_limiter.max_requests),
+                "X-RateLimit-Window": str(rate_limiter.window_seconds)
+            }
+        )
+```
+
+## Data Sanitization
+
+### SQL Injection Prevention
+Always use parameterized queries through SQLModel/SQLAlchemy:
+
+```python
+# GOOD - Parameterized query (SQLModel/SQLAlchemy handles escaping)
+async def get_streams_by_seed(session: Session, client_seed: str) -> List[LiveStream]:
+    stmt = select(LiveStream).where(LiveStream.client_seed == client_seed)
+    result = await session.exec(stmt)
+    return result.all()
+
+# BAD - Never construct raw SQL with user input
+async def bad_query(session: Session, client_seed: str):
+    # DON'T DO THIS - vulnerable to SQL injection
+    query = f"SELECT * FROM live_streams WHERE client_seed = '{client_seed}'"
+    result = await session.execute(text(query))  # DANGEROUS
+```
+
+### Input Sanitization
+Sanitize user inputs for display and storage:
+
+```python
+import html
+import re
+from urllib.parse import quote
+
+def sanitize_user_input(text: str, max_length: int = 1000) -> str:
+    """Sanitize user input for safe storage and display."""
+    if not text:
+        return ""
+
+    # Limit length
+    text = text[:max_length]
+
+    # Remove control characters except newlines and tabs
+    text = re.sub(r'[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]', '', text)
+
+    # HTML escape for display
+    text = html.escape(text)
+
+    # Trim whitespace
+    text = text.strip()
+
+    return text
+
+def sanitize_filename(filename: str) -> str:
+    """Sanitize filename for safe file operations."""
+    if not filename:
+        return "untitled"
+
+    # Remove path separators and dangerous characters
+    filename = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', filename)
+
+    # Limit length
+    filename = filename[:255]
+
+    # Ensure it's not empty after sanitization
+    if not filename.strip():
+        return "untitled"
+
+    return filename.strip()
+```
+
+### Frontend Sanitization
+Sanitize data on the frontend before display:
+
+```typescript
+import DOMPurify from 'dompurify';
+
+export function sanitizeHtml(html: string): string {
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: ['b', 'i', 'em', 'strong', 'br', 'p'],
+    ALLOWED_ATTR: []
+  });
+}
+
+export function escapeHtml(text: string): string {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+export function sanitizeUserNote(note: string, maxLength: number = 1000): string {
+  if (!note) return '';
+
+  // Trim and limit length
+  note = note.trim().slice(0, maxLength);
+
+  // Remove dangerous characters but allow basic formatting
+  note = note.replace(/[<>]/g, '');
+
+  return note;
+}
+```
+
+## CORS Configuration
+
+### Secure CORS Setup
+Configure CORS properly for local development:
+
+```python
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.api_cors_origins,  # Specific origins only
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Accept",
+        "Accept-Language",
+        "Content-Language",
+        "Content-Type",
+        "Authorization",
+        "X-Ingest-Token",  # Custom headers for authentication
+        "X-Requested-With",
+        "Origin",
+        "Referer",
+        "User-Agent"
+    ],
+    expose_headers=[
+        "X-RateLimit-Limit",
+        "X-RateLimit-Remaining",
+        "X-RateLimit-Reset",
+        "Retry-After"
+    ],
+    max_age=300  # Cache preflight requests for 5 minutes
+)
+```
+
+## Error Handling Security
+
+### Safe Error Messages
+Never expose sensitive information in error messages:
+
+```python
+async def safe_get_stream(session: Session, stream_id: UUID) -> LiveStream:
+    """Get stream with safe error handling."""
+    try:
+        stmt = select(LiveStream).where(LiveStream.id == stream_id)
+        result = await session.exec(stmt)
+        stream = result.first()
+
+        if not stream:
+            # Generic message - don't reveal if ID format is valid
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Stream not found"
+            )
+
+        return stream
+
+    except ValueError:
+        # Invalid UUID format - don't expose internal details
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid stream identifier"
+        )
+    except Exception as e:
+        # Log detailed error internally, return generic message
+        logger.exception(f"Database error in safe_get_stream: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Internal server error"
+        )
+```
+
+### Logging Security Events
+Log security-relevant events for monitoring:
+
+```python
+import logging
+from datetime import datetime
+
+security_logger = logging.getLogger("security")
+
+async def log_authentication_attempt(
+    client_ip: str,
+    success: bool,
+    reason: str = None
+):
+    """Log authentication attempts for security monitoring."""
+    level = logging.INFO if success else logging.WARNING
+
+    security_logger.log(
+        level,
+        f"Auth attempt: IP={client_ip}, Success={success}, Reason={reason}",
+        extra={
+            "event_type": "authentication",
+            "client_ip": client_ip,
+            "success": success,
+            "reason": reason,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
+
+async def log_rate_limit_exceeded(client_id: str, endpoint: str):
+    """Log rate limiting events."""
+    security_logger.warning(
+        f"Rate limit exceeded: Client={client_id}, Endpoint={endpoint}",
+        extra={
+            "event_type": "rate_limit",
+            "client_id": client_id,
+            "endpoint": endpoint,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    )
+```
+
+## Environment Security
+
+### Secure Configuration
+Properly handle sensitive configuration:
+
+```python
+from pydantic_settings import BaseSettings
+from typing import List
+
+class Settings(BaseSettings):
+    """Application settings with secure defaults."""
+
+    # Database
+    database_url: str = "sqlite+aiosqlite:///./pump.db"
+
+    # Security
+    ingest_token: str  # No default - must be provided
+    api_cors_origins: List[str] = ["http://localhost:5173"]
+
+    # Performance
+    max_nonces: int = 500000
+    ingest_rate_limit: int = 100  # Requests per minute
+
+    # Development
+    debug: bool = False
+
+    class Config:
+        env_file = ".env"
+        case_sensitive = False
+
+        # Don't log sensitive values
+        env_ignore_empty = True
+
+    def __repr__(self) -> str:
+        """Safe representation that doesn't expose secrets."""
+        safe_fields = {
+            k: v if k not in ["ingest_token"] else "[REDACTED]"
+            for k, v in self.__dict__.items()
+        }
+        return f"Settings({safe_fields})"
+```
+
+### Frontend Environment Variables
+Safely handle environment variables in Vite:
+
+```typescript
+// Environment validation
+const requiredEnvVars = {
+  VITE_API_BASE: process.env.VITE_API_BASE,
+} as const;
+
+// Validate required environment variables at startup
+for (const [key, value] of Object.entries(requiredEnvVars)) {
+  if (!value) {
+    throw new Error(`Missing required environment variable: ${key}`);
+  }
+}
+
+export const config = {
+  apiBase: requiredEnvVars.VITE_API_BASE,
+  isDevelopment: process.env.NODE_ENV === 'development',
+  isProduction: process.env.NODE_ENV === 'production',
+} as const;
+
+// Don't expose sensitive data in client bundle
+if (typeof window !== 'undefined') {
+  // Client-side - ensure no server secrets are accessible
+  console.assert(
+    !process.env.INGEST_TOKEN,
+    'Server secrets should not be accessible in client bundle'
+  );
+}
+```
+
+These security guidelines ensure the application handles user input safely, implements proper authentication, and protects against common web vulnerabilities while maintaining usability for legitimate users.

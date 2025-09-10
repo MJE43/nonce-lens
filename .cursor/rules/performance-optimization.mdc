@@ -1,0 +1,753 @@
+---
+description: Performance Optimization Guidelines
+globs: app/**/*.py,src/**/*.ts,src/**/*.tsx,pump-api/**/*.py,pump-frontend/**/*.ts,pump-frontend/**/*.tsx
+---
+
+# Performance Optimization Guidelines
+
+## Backend Performance
+
+### Database Query Optimization
+Optimize database queries for better performance:
+
+```python
+from sqlalchemy import func, text
+from sqlalchemy.orm import selectinload, joinedload
+from sqlmodel import Session, select
+
+# GOOD - Use selective loading and proper indexing
+async def get_streams_with_stats_optimized(
+    session: Session,
+    limit: int = 50,
+    offset: int = 0
+) -> List[Dict]:
+    """Efficiently get streams with computed statistics."""
+
+    # Single query with aggregation instead of N+1 queries
+    stmt = (
+        select(
+            LiveStream.id,
+            LiveStream.client_seed,
+            LiveStream.server_seed_hashed,
+            LiveStream.created_at,
+            LiveStream.last_seen_at,
+            LiveStream.notes,
+            func.count(LiveBet.id).label("total_bets"),
+            func.max(LiveBet.payout_multiplier).label("highest_multiplier"),
+            func.avg(LiveBet.payout_multiplier).label("average_multiplier"),
+            func.sum(LiveBet.amount).label("total_amount")
+        )
+        .outerjoin(LiveBet, LiveStream.id == LiveBet.stream_id)
+        .group_by(LiveStream.id)
+        .order_by(LiveStream.last_seen_at.desc())
+        .offset(offset)
+        .limit(limit)
+    )
+
+    result = await session.exec(stmt)
+    return [dict(row) for row in result.all()]
+
+# AVOID - N+1 query problem
+async def get_streams_with_stats_inefficient(session: Session) -> List[Dict]:
+    """Inefficient approach that creates N+1 queries."""
+    streams = await session.exec(select(LiveStream)).all()
+
+    results = []
+    for stream in streams:  # This creates N additional queries
+        bet_count = await session.exec(
+            select(func.count(LiveBet.id)).where(LiveBet.stream_id == stream.id)
+        ).one()
+        results.append({"stream": stream, "bet_count": bet_count})
+
+    return results
+
+# Use eager loading for relationships
+async def get_stream_with_recent_bets(
+    session: Session,
+    stream_id: UUID
+) -> Optional[LiveStream]:
+    """Efficiently load stream with related data."""
+    stmt = (
+        select(LiveStream)
+        .options(
+            selectinload(LiveStream.bets)
+            .options(selectinload(LiveBet.bookmarks))  # Chain loading
+        )
+        .where(LiveStream.id == stream_id)
+    )
+    result = await session.exec(stmt)
+    return result.first()
+
+# Use raw SQL for complex analytics queries
+async def get_multiplier_distribution(
+    session: Session,
+    stream_id: UUID,
+    bin_size: float = 0.1
+) -> List[Dict]:
+    """Get multiplier distribution using optimized raw SQL."""
+    query = text("""
+        SELECT
+            FLOOR(payout_multiplier / :bin_size) * :bin_size as bin_start,
+            COUNT(*) as count,
+            AVG(amount) as avg_amount
+        FROM live_bets
+        WHERE stream_id = :stream_id
+        GROUP BY FLOOR(payout_multiplier / :bin_size)
+        ORDER BY bin_start
+    """)
+
+    result = await session.execute(query, {
+        "stream_id": str(stream_id),
+        "bin_size": bin_size
+    })
+
+    return [
+        {"bin_start": row[0], "count": row[1], "avg_amount": row[2]}
+        for row in result.fetchall()
+    ]
+```
+
+### Bulk Operations
+Use bulk operations for better performance:
+
+```python
+from sqlalchemy import insert, update
+from typing import List
+
+async def bulk_insert_bets_optimized(
+    session: Session,
+    bets_data: List[Dict]
+) -> None:
+    """Efficiently insert multiple bets using bulk operations."""
+
+    if not bets_data:
+        return
+
+    # Use SQLAlchemy's bulk insert for better performance
+    stmt = insert(LiveBet).values(bets_data)
+    await session.execute(stmt)
+    await session.commit()
+
+async def bulk_update_stream_activity(
+    session: Session,
+    stream_updates: List[Dict]
+) -> None:
+    """Bulk update stream last_seen_at timestamps."""
+
+    if not stream_updates:
+        return
+
+    # Use bulk update with case statement for multiple streams
+    await session.execute(
+        update(LiveStream).where(
+            LiveStream.id.in_([update["id"] for update in stream_updates])
+        ),
+        stream_updates
+    )
+    await session.commit()
+
+async def process_bets_in_batches(
+    session: Session,
+    bet_processor: Callable,
+    batch_size: int = 1000
+) -> None:
+    """Process large datasets in batches to manage memory."""
+
+    offset = 0
+    while True:
+        # Get batch of bets
+        stmt = (
+            select(LiveBet)
+            .order_by(LiveBet.id)
+            .offset(offset)
+            .limit(batch_size)
+        )
+        batch = await session.exec(stmt).all()
+
+        if not batch:
+            break
+
+        # Process batch
+        await bet_processor(session, batch)
+
+        offset += batch_size
+
+        # Optional: Add small delay to prevent overwhelming the system
+        if offset % 10000 == 0:
+            await asyncio.sleep(0.1)
+```
+
+### Caching Strategies
+Implement caching for frequently accessed data:
+
+```python
+from functools import lru_cache, wraps
+from typing import Optional
+import asyncio
+import time
+
+class AsyncLRUCache:
+    """Async LRU cache implementation."""
+
+    def __init__(self, maxsize: int = 128, ttl: int = 300):
+        self.maxsize = maxsize
+        self.ttl = ttl
+        self.cache = {}
+        self.access_times = {}
+
+    def __call__(self, func):
+        @wraps(func)
+        async def wrapper(*args, **kwargs):
+            # Create cache key
+            key = str(args) + str(sorted(kwargs.items()))
+            current_time = time.time()
+
+            # Check if cached and not expired
+            if key in self.cache:
+                cached_time = self.access_times[key]
+                if current_time - cached_time < self.ttl:
+                    return self.cache[key]
+                else:
+                    # Remove expired entry
+                    del self.cache[key]
+                    del self.access_times[key]
+
+            # Execute function and cache result
+            result = await func(*args, **kwargs)
+
+            # Implement LRU eviction if cache is full
+            if len(self.cache) >= self.maxsize:
+                oldest_key = min(self.access_times.keys(),
+                               key=lambda k: self.access_times[k])
+                del self.cache[oldest_key]
+                del self.access_times[oldest_key]
+
+            self.cache[key] = result
+            self.access_times[key] = current_time
+
+            return result
+        return wrapper
+
+# Cache frequently accessed configuration
+@lru_cache(maxsize=1)
+def get_multiplier_tables() -> Dict[str, List[float]]:
+    """Cache multiplier tables since they never change."""
+    return {
+        "easy": [1.01, 1.02, 1.03, ...],
+        "medium": [1.02, 1.04, 1.06, ...],
+        "hard": [1.05, 1.10, 1.15, ...],
+        "expert": [1.10, 1.25, 1.50, ...],
+    }
+
+# Cache expensive computations
+@AsyncLRUCache(maxsize=50, ttl=300)  # 5 minute TTL
+async def get_stream_analytics_cached(
+    session: Session,
+    stream_id: UUID
+) -> Dict:
+    """Get stream analytics with caching."""
+    return await compute_stream_analytics(session, stream_id)
+
+# Application-level caching for settings
+class SettingsCache:
+    """Application settings cache with refresh capability."""
+
+    def __init__(self):
+        self._cache = {}
+        self._last_refresh = 0
+        self._ttl = 60  # 1 minute
+
+    async def get_settings(self) -> Dict:
+        current_time = time.time()
+
+        if (current_time - self._last_refresh) > self._ttl:
+            self._cache = await self._load_settings()
+            self._last_refresh = current_time
+
+        return self._cache
+
+    async def _load_settings(self) -> Dict:
+        # Load from database or config file
+        return {"max_nonces": 500000, "rate_limit": 100}
+
+settings_cache = SettingsCache()
+```
+
+### Asynchronous Processing
+Optimize async operations:
+
+```python
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+from typing import List, Callable
+
+async def run_cpu_intensive_task(func: Callable, *args, **kwargs):
+    """Run CPU-intensive tasks in thread pool."""
+    loop = asyncio.get_event_loop()
+    with ThreadPoolExecutor() as executor:
+        return await loop.run_in_executor(executor, func, *args, **kwargs)
+
+async def analyze_pump_async(
+    server_seed: str,
+    client_seed: str,
+    start: int,
+    end: int,
+    difficulty: str,
+    targets: List[float]
+) -> Tuple[Dict, Dict]:
+    """Async wrapper for CPU-intensive pump analysis."""
+
+    # Run the CPU-intensive analysis in a thread pool
+    result = await run_cpu_intensive_task(
+        scan_pump_sync,  # Synchronous version
+        server_seed, client_seed, start, end, difficulty, targets
+    )
+
+    return result
+
+async def process_multiple_streams_concurrently(
+    session: Session,
+    stream_ids: List[UUID],
+    max_concurrent: int = 5
+) -> List[Dict]:
+    """Process multiple streams concurrently with limit."""
+
+    semaphore = asyncio.Semaphore(max_concurrent)
+
+    async def process_single_stream(stream_id: UUID) -> Dict:
+        async with semaphore:
+            return await get_stream_analytics_cached(session, stream_id)
+
+    # Run all tasks concurrently
+    tasks = [process_single_stream(stream_id) for stream_id in stream_ids]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    # Filter out exceptions and return successful results
+    return [result for result in results if not isinstance(result, Exception)]
+```
+
+## Frontend Performance
+
+### React Performance Optimization
+Optimize React components for better performance:
+
+```typescript
+import React, { memo, useMemo, useCallback, useState } from 'react';
+import { VirtualizeProvider, useVirtualize } from '@tanstack/react-virtual';
+
+// Memoize expensive computations
+function StreamAnalytics({ bets }: { bets: Bet[] }) {
+  const analytics = useMemo(() => {
+    // Expensive computation - only runs when bets change
+    return computeAnalytics(bets);
+  }, [bets]);
+
+  const chartData = useMemo(() => {
+    return transformDataForChart(analytics);
+  }, [analytics]);
+
+  return <AnalyticsChart data={chartData} />;
+}
+
+// Memoize components with stable props
+const StreamCard = memo(function StreamCard({
+  stream,
+  onSelect,
+  isSelected
+}: StreamCardProps) {
+  return (
+    <Card
+      className={cn("stream-card", isSelected && "selected")}
+      onClick={() => onSelect(stream.id)}
+    >
+      <CardContent>
+        <h3>{stream.client_seed}</h3>
+        <p>{stream.total_bets} bets</p>
+        <p>Max: {stream.highest_multiplier}x</p>
+      </CardContent>
+    </Card>
+  );
+});
+
+// Optimize callback functions
+function StreamsList({ streams }: { streams: Stream[] }) {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  // Stabilize callback reference
+  const handleStreamSelect = useCallback((id: string) => {
+    setSelectedId(id);
+  }, []);
+
+  // Optimize rendering large lists
+  const filteredStreams = useMemo(() => {
+    return streams.filter(stream => stream.total_bets > 0);
+  }, [streams]);
+
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+      {filteredStreams.map(stream => (
+        <StreamCard
+          key={stream.id}
+          stream={stream}
+          onSelect={handleStreamSelect}
+          isSelected={selectedId === stream.id}
+        />
+      ))}
+    </div>
+  );
+}
+
+// Virtualize large lists
+function VirtualizedBetTable({ bets }: { bets: Bet[] }) {
+  const parentRef = React.useRef<HTMLDivElement>(null);
+
+  const virtualizer = useVirtualize({
+    count: bets.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 40, // Estimated row height
+    overscan: 10, // Render extra items outside viewport
+  });
+
+  return (
+    <div ref={parentRef} className="h-[400px] overflow-auto">
+      <div
+        style={{
+          height: `${virtualizer.getTotalSize()}px`,
+          width: '100%',
+          position: 'relative',
+        }}
+      >
+        {virtualizer.getVirtualItems().map((virtualItem) => {
+          const bet = bets[virtualItem.index];
+          return (
+            <div
+              key={virtualItem.key}
+              style={{
+                position: 'absolute',
+                top: 0,
+                left: 0,
+                width: '100%',
+                height: `${virtualItem.size}px`,
+                transform: `translateY(${virtualItem.start}px)`,
+              }}
+            >
+              <BetRow bet={bet} />
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+```
+
+### Query Optimization with TanStack Query
+Optimize data fetching and caching:
+
+```typescript
+import { useQuery, useInfiniteQuery, useQueryClient } from '@tanstack/react-query';
+
+// Optimize query configuration
+export function useStreams(filters?: StreamFilters) {
+  return useQuery({
+    queryKey: ['streams', filters],
+    queryFn: () => api.getStreams(filters),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    cacheTime: 10 * 60 * 1000, // 10 minutes
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    retry: 3,
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+  });
+}
+
+// Use infinite queries for large datasets
+export function useInfiniteBets(streamId: string) {
+  return useInfiniteQuery({
+    queryKey: ['bets', streamId],
+    queryFn: ({ pageParam = 0 }) =>
+      api.getBets(streamId, { offset: pageParam, limit: 50 }),
+    getNextPageParam: (lastPage, pages) => {
+      if (lastPage.bets.length < 50) return undefined;
+      return pages.length * 50;
+    },
+    staleTime: 2 * 60 * 1000, // 2 minutes
+    cacheTime: 5 * 60 * 1000, // 5 minutes
+  });
+}
+
+// Prefetch related data
+export function useStreamWithPrefetch(streamId: string) {
+  const queryClient = useQueryClient();
+
+  const streamQuery = useQuery({
+    queryKey: ['stream', streamId],
+    queryFn: () => api.getStream(streamId),
+    onSuccess: (stream) => {
+      // Prefetch related data
+      queryClient.prefetchQuery({
+        queryKey: ['bets', streamId],
+        queryFn: () => api.getBets(streamId, { limit: 50 }),
+        staleTime: 2 * 60 * 1000,
+      });
+
+      queryClient.prefetchQuery({
+        queryKey: ['stream-analytics', streamId],
+        queryFn: () => api.getStreamAnalytics(streamId),
+        staleTime: 5 * 60 * 1000,
+      });
+    },
+  });
+
+  return streamQuery;
+}
+
+// Optimize real-time updates
+export function useStreamTail(streamId: string, enabled: boolean = true) {
+  const queryClient = useQueryClient();
+
+  return useQuery({
+    queryKey: ['stream-tail', streamId],
+    queryFn: async () => {
+      const lastId = getLastBetId(queryClient, streamId);
+      return api.getStreamTail(streamId, lastId);
+    },
+    enabled,
+    refetchInterval: 2000, // Poll every 2 seconds
+    refetchIntervalInBackground: false,
+    onSuccess: (data) => {
+      if (data.bets.length > 0) {
+        // Update the bets cache with new data
+        queryClient.setQueryData(['bets', streamId], (old: any) => {
+          if (!old) return { bets: data.bets };
+          return {
+            ...old,
+            bets: [...old.bets, ...data.bets],
+          };
+        });
+      }
+    },
+  });
+}
+
+function getLastBetId(queryClient: any, streamId: string): number | undefined {
+  const betsData = queryClient.getQueryData(['bets', streamId]);
+  if (betsData?.bets?.length > 0) {
+    return Math.max(...betsData.bets.map((bet: Bet) => bet.id));
+  }
+  return undefined;
+}
+```
+
+### Bundle Optimization
+Optimize the application bundle:
+
+```typescript
+// vite.config.ts
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { resolve } from 'path';
+
+export default defineConfig({
+  plugins: [react()],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          // Separate vendor chunks
+          'react-vendor': ['react', 'react-dom'],
+          'query-vendor': ['@tanstack/react-query'],
+          'ui-vendor': ['@radix-ui/react-dialog', '@radix-ui/react-select'],
+          'chart-vendor': ['recharts'],
+        },
+      },
+    },
+    // Enable gzip compression
+    reportCompressedSize: true,
+    // Optimize chunk size warnings
+    chunkSizeWarningLimit: 1000,
+  },
+  resolve: {
+    alias: {
+      '@': resolve(__dirname, './src'),
+    },
+  },
+  // Optimize dev server
+  server: {
+    hmr: {
+      overlay: false, // Disable error overlay for better performance
+    },
+  },
+});
+
+// Lazy load heavy components
+const StreamAnalytics = lazy(() => import('./StreamAnalytics'));
+const DataExportDialog = lazy(() => import('./DataExportDialog'));
+
+function StreamDetail({ streamId }: { streamId: string }) {
+  const [showAnalytics, setShowAnalytics] = useState(false);
+
+  return (
+    <div>
+      <StreamHeader streamId={streamId} />
+
+      <Button onClick={() => setShowAnalytics(true)}>
+        Show Analytics
+      </Button>
+
+      {showAnalytics && (
+        <Suspense fallback={<AnalyticsLoading />}>
+          <StreamAnalytics streamId={streamId} />
+        </Suspense>
+      )}
+    </div>
+  );
+}
+
+// Code splitting by route
+const LazyStreamsList = lazy(() => import('./pages/StreamsList'));
+const LazyStreamDetail = lazy(() => import('./pages/StreamDetail'));
+
+function App() {
+  return (
+    <Router>
+      <Routes>
+        <Route
+          path="/streams"
+          element={
+            <Suspense fallback={<PageLoading />}>
+              <LazyStreamsList />
+            </Suspense>
+          }
+        />
+        <Route
+          path="/streams/:id"
+          element={
+            <Suspense fallback={<PageLoading />}>
+              <LazyStreamDetail />
+            </Suspense>
+          }
+        />
+      </Routes>
+    </Router>
+  );
+}
+```
+
+## Monitoring and Profiling
+
+### Performance Monitoring
+Set up performance monitoring:
+
+```python
+import time
+import functools
+from typing import Dict, Any
+import asyncio
+
+def monitor_performance(threshold_ms: int = 1000):
+    """Decorator to monitor function performance."""
+    def decorator(func):
+        @functools.wraps(func)
+        async def wrapper(*args, **kwargs):
+            start_time = time.time()
+
+            try:
+                result = await func(*args, **kwargs)
+                return result
+            finally:
+                duration_ms = (time.time() - start_time) * 1000
+
+                # Log slow operations
+                if duration_ms > threshold_ms:
+                    logger.warning(
+                        f"Slow operation detected: {func.__name__} took {duration_ms:.2f}ms",
+                        extra={
+                            "function": func.__name__,
+                            "duration_ms": duration_ms,
+                            "threshold_ms": threshold_ms,
+                            "args_count": len(args),
+                            "kwargs_count": len(kwargs)
+                        }
+                    )
+                else:
+                    logger.debug(
+                        f"Performance: {func.__name__} took {duration_ms:.2f}ms"
+                    )
+
+        return wrapper
+    return decorator
+
+# Usage
+@monitor_performance(threshold_ms=5000)
+async def analyze_large_stream(session: Session, stream_id: UUID):
+    # Implementation
+    pass
+
+# Frontend performance monitoring
+class PerformanceMonitor {
+  private static instance: PerformanceMonitor;
+
+  static getInstance(): PerformanceMonitor {
+    if (!PerformanceMonitor.instance) {
+      PerformanceMonitor.instance = new PerformanceMonitor();
+    }
+    return PerformanceMonitor.instance;
+  }
+
+  measureComponentRender(componentName: string) {
+    return (target: any, propertyName: string, descriptor: PropertyDescriptor) => {
+      const method = descriptor.value;
+
+      descriptor.value = function (...args: any[]) {
+        const startTime = performance.now();
+        const result = method.apply(this, args);
+        const endTime = performance.now();
+
+        const duration = endTime - startTime;
+        if (duration > 16) { // > 16ms might cause frame drops
+          console.warn(`Slow render: ${componentName}.${propertyName} took ${duration.toFixed(2)}ms`);
+        }
+
+        return result;
+      };
+    };
+  }
+
+  measureAsyncOperation(operationName: string) {
+    return function (target: any, propertyName: string, descriptor: PropertyDescriptor) {
+      const method = descriptor.value;
+
+      descriptor.value = async function (...args: any[]) {
+        const startTime = performance.now();
+        try {
+          const result = await method.apply(this, args);
+          return result;
+        } finally {
+          const endTime = performance.now();
+          const duration = endTime - startTime;
+
+          if (duration > 1000) { // > 1s is slow for most operations
+            console.warn(`Slow async operation: ${operationName} took ${duration.toFixed(2)}ms`);
+          }
+        }
+      };
+    };
+  }
+}
+
+// Usage in React components
+class StreamAnalytics extends Component {
+  @PerformanceMonitor.getInstance().measureComponentRender('StreamAnalytics')
+  render() {
+    // Component render logic
+  }
+
+  @PerformanceMonitor.getInstance().measureAsyncOperation('loadAnalytics')
+  async loadAnalytics() {
+    // Async operation
+  }
+}
+```
+
+These performance optimization guidelines ensure the application runs efficiently under load, provides responsive user experience, and scales well as data grows.
