@@ -24,12 +24,16 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Switch } from "@/components/ui/switch";
 import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
   Filter,
   TrendingUp,
+  Star,
+  StarOff,
+  BarChart3,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { BetRecord } from "@/lib/api";
@@ -49,10 +53,19 @@ interface LiveBetTableProps {
   highlightNewBets?: boolean;
   newBetIds?: Set<number>;
   className?: string;
+
+  // Enhanced features
+  showDistanceColumn?: boolean;
+  distanceColumn?: boolean; // Alternative prop name for compatibility
+  pinnedMultipliers?: number[];
+  highlightMultiplier?: number;
+  showBookmarks?: boolean;
+  onBookmark?: (bet: BetRecord, note?: string) => void;
 }
 
 export type SortField =
   | "nonce"
+  | "id"
   | "date_time"
   | "amount"
   | "round_result"
@@ -65,6 +78,8 @@ export interface BetFilters {
   difficulty?: string;
   minAmount?: number;
   maxAmount?: number;
+  showOnlyPinned?: boolean;
+  pinnedMultipliers?: number[];
 }
 
 const DIFFICULTY_COLORS = {
@@ -101,6 +116,14 @@ function LiveBetTable({
   highlightNewBets = false,
   newBetIds = new Set(),
   className,
+
+  // Enhanced features
+  showDistanceColumn = false,
+  distanceColumn = false,
+  pinnedMultipliers = [],
+  highlightMultiplier,
+  showBookmarks = false,
+  onBookmark,
 }: LiveBetTableProps) {
   const [localFilters, setLocalFilters] = useState<BetFilters>(filters);
   const [filterInputs, setFilterInputs] = useState({
@@ -109,17 +132,54 @@ function LiveBetTable({
     maxAmount: filters.maxAmount?.toString() || "",
   });
 
+  // Calculate if distance column should be shown
+  const shouldShowDistance = showDistanceColumn || distanceColumn;
+
+  // Calculate if pinned multipliers filter should be shown
+  const shouldShowPinnedFilter = pinnedMultipliers.length > 0;
+
   const tableRef = useRef<HTMLDivElement>(null);
   const [visibleRange, setVisibleRange] = useState({ start: 0, end: 50 });
 
+  // Client-side distance calculation
+  const betsWithDistance = useMemo(() => {
+    if (!bets || !shouldShowDistance) return bets;
+
+    const lastNonceByMultiplier = new Map<number, number>();
+
+    return bets.map((bet) => {
+      const multiplier = bet.round_result ?? bet.payout_multiplier;
+
+      // Use server-provided distance if available
+      if (
+        bet.distance_prev_opt !== undefined &&
+        bet.distance_prev_opt !== null
+      ) {
+        return bet;
+      }
+
+      // Calculate client-side distance
+      const lastNonce = lastNonceByMultiplier.get(multiplier);
+      const distance = lastNonce ? bet.nonce - lastNonce : null;
+
+      lastNonceByMultiplier.set(multiplier, bet.nonce);
+
+      return {
+        ...bet,
+        distance_prev_opt: distance,
+      };
+    });
+  }, [bets, shouldShowDistance]);
+
   // Apply filters locally if no external filter handler
   const filteredBets = useMemo(() => {
-    if (!bets) return [];
+    if (!betsWithDistance) return [];
 
-    return bets.filter((bet) => {
+    return betsWithDistance.filter((bet) => {
       if (
         localFilters.minMultiplier &&
-        (bet.round_result ?? 0) < localFilters.minMultiplier
+        (bet.round_result ?? bet.payout_multiplier ?? 0) <
+          localFilters.minMultiplier
       ) {
         return false;
       }
@@ -135,9 +195,20 @@ function LiveBetTable({
       if (localFilters.maxAmount && bet.amount > localFilters.maxAmount) {
         return false;
       }
+
+      // Filter by pinned multipliers if enabled
+      if (localFilters.showOnlyPinned && pinnedMultipliers.length > 0) {
+        const multiplier = bet.round_result ?? bet.payout_multiplier ?? 0;
+        const tolerance = 1e-9;
+        const isMatched = pinnedMultipliers.some(
+          (target) => Math.abs(multiplier - target) < tolerance
+        );
+        if (!isMatched) return false;
+      }
+
       return true;
     });
-  }, [bets, localFilters]);
+  }, [betsWithDistance, localFilters, pinnedMultipliers]);
 
   // Sort bets locally if no external sort handler
   const sortedBets = useMemo(() => {
@@ -217,6 +288,20 @@ function LiveBetTable({
       }
     },
     [localFilters, onFilter]
+  );
+
+  // Handle bookmark functionality
+  const handleBookmark = useCallback(
+    (bet: BetRecord, note?: string) => {
+      if (onBookmark) {
+        if (note !== undefined) {
+          onBookmark(bet, note);
+        } else {
+          onBookmark(bet);
+        }
+      }
+    },
+    [onBookmark]
   );
 
   // Apply filter inputs with debouncing
@@ -387,6 +472,53 @@ function LiveBetTable({
           </Select>
         </div>
 
+        {/* Sort Order Selector */}
+        <div className="flex items-center gap-2">
+          <label className="text-sm text-muted-foreground">Sort by:</label>
+          <Select
+            value={`${sortField}_${sortDirection}`}
+            onValueChange={(value) => {
+              const [field, direction] = value.split("_") as [
+                SortField,
+                SortDirection
+              ];
+              if (onSort) {
+                onSort(field, direction);
+              }
+            }}
+          >
+            <SelectTrigger className="w-32 h-8">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="nonce_asc">Nonce (Asc)</SelectItem>
+              <SelectItem value="id_desc">Latest First</SelectItem>
+              <SelectItem value="round_result_desc">
+                Multiplier (High)
+              </SelectItem>
+              <SelectItem value="round_result_asc">Multiplier (Low)</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+
+        {/* Pinned Multipliers Filter */}
+        {shouldShowPinnedFilter && (
+          <div className="flex items-center gap-2">
+            <Switch
+              checked={localFilters.showOnlyPinned || false}
+              onCheckedChange={(checked) =>
+                handleFilterChange({
+                  showOnlyPinned: checked,
+                  pinnedMultipliers: pinnedMultipliers,
+                })
+              }
+            />
+            <label className="text-sm text-muted-foreground">
+              Show Only Pinned
+            </label>
+          </div>
+        )}
+
         <div className="flex items-center gap-2">
           <label className="text-sm text-muted-foreground">Amount:</label>
           <Input
@@ -438,6 +570,11 @@ function LiveBetTable({
         <Table>
           <TableHeader className="sticky top-0 bg-background z-10">
             <TableRow>
+              {showBookmarks && (
+                <TableHead className="w-12">
+                  <Star className="h-3 w-3" />
+                </TableHead>
+              )}
               <TableHead>
                 <SortButton field="nonce">Nonce</SortButton>
               </TableHead>
@@ -453,6 +590,12 @@ function LiveBetTable({
                   Multiplier
                 </SortButton>
               </TableHead>
+              {shouldShowDistance && (
+                <TableHead>
+                  <BarChart3 className="h-3 w-3 mr-1" />
+                  Distance
+                </TableHead>
+              )}
               <TableHead>
                 <SortButton field="payout">Payout</SortButton>
               </TableHead>
@@ -466,7 +609,13 @@ function LiveBetTable({
             {visibleBets.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={
+                    showBookmarks && shouldShowDistance
+                      ? 9
+                      : showBookmarks || shouldShowDistance
+                      ? 8
+                      : 7
+                  }
                   className="text-center py-8 text-muted-foreground"
                 >
                   {filteredBets.length === 0 && bets.length > 0
@@ -475,61 +624,103 @@ function LiveBetTable({
                 </TableCell>
               </TableRow>
             ) : (
-              visibleBets.map((bet) => (
-                <TableRow
-                  key={bet.id}
-                  className={cn(
-                    "cursor-pointer transition-all duration-200",
-                    highlightNewBets &&
-                      newBetIds.has(bet.id) &&
-                      "bg-green-50 dark:bg-green-900/10 animate-pulse",
-                    onBetClick && "hover:bg-accent/50"
-                  )}
-                  onClick={() => onBetClick?.(bet)}
-                >
-                  <TableCell className="font-mono text-sm">
-                    {bet.nonce.toLocaleString()}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {formatDateTime(bet.date_time, bet.received_at)}
-                  </TableCell>
-                  <TableCell className="font-mono text-sm">
-                    {formatAmount(bet.amount)}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant={getMultiplierBadgeVariant(bet.round_result ?? 0)}
-                      className="font-mono text-xs"
-                    >
-                      {formatMultiplier(bet.round_result ?? 0)}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="font-mono text-sm">
-                    {formatAmount(bet.payout)}
-                  </TableCell>
-                  <TableCell>
-                    <Badge
-                      variant="outline"
-                      className={cn(
-                        "text-xs capitalize",
-                        DIFFICULTY_COLORS[bet.difficulty]
-                      )}
-                    >
-                      {bet.difficulty}
-                    </Badge>
-                  </TableCell>
-                  <TableCell className="font-mono text-xs text-muted-foreground">
-                    {bet.round_target && bet.round_result ? (
-                      <div className="space-y-1">
-                        <div>T: {bet.round_target.toFixed(2)}</div>
-                        <div>R: {bet.round_result.toFixed(2)}</div>
-                      </div>
-                    ) : (
-                      "—"
+              visibleBets.map((bet) => {
+                const multiplier =
+                  bet.round_result ?? bet.payout_multiplier ?? 0;
+                const isHighlighted =
+                  highlightMultiplier &&
+                  Math.abs(multiplier - highlightMultiplier) < 1e-9;
+                const isBookmarked = (bet as any).isBookmarked || false;
+
+                return (
+                  <TableRow
+                    key={bet.id}
+                    className={cn(
+                      "cursor-pointer transition-all duration-200",
+                      highlightNewBets &&
+                        newBetIds.has(bet.id) &&
+                        "bg-green-50 dark:bg-green-900/10 animate-pulse",
+                      isHighlighted && "bg-yellow-50 dark:bg-yellow-900/10",
+                      onBetClick && "hover:bg-accent/50"
                     )}
-                  </TableCell>
-                </TableRow>
-              ))
+                    onClick={() => onBetClick?.(bet)}
+                    data-testid={isHighlighted ? "highlighted-row" : undefined}
+                  >
+                    {showBookmarks && (
+                      <TableCell className="w-12">
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          className={cn(
+                            "h-6 w-6",
+                            isBookmarked && "bookmarked text-yellow-500"
+                          )}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleBookmark(bet);
+                          }}
+                          aria-label="Bookmark this bet"
+                        >
+                          {isBookmarked ? (
+                            <Star className="h-3 w-3 fill-current" />
+                          ) : (
+                            <StarOff className="h-3 w-3" />
+                          )}
+                        </Button>
+                      </TableCell>
+                    )}
+                    <TableCell className="font-mono text-sm">
+                      {bet.nonce.toLocaleString()}
+                    </TableCell>
+                    <TableCell className="text-sm">
+                      {formatDateTime(bet.date_time, bet.received_at)}
+                    </TableCell>
+                    <TableCell className="font-mono text-sm">
+                      {formatAmount(bet.amount)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant={getMultiplierBadgeVariant(multiplier)}
+                        className="font-mono text-xs"
+                      >
+                        {formatMultiplier(multiplier)}
+                      </Badge>
+                    </TableCell>
+                    {shouldShowDistance && (
+                      <TableCell className="font-mono text-sm">
+                        {bet.distance_prev_opt !== null &&
+                        bet.distance_prev_opt !== undefined
+                          ? bet.distance_prev_opt.toLocaleString()
+                          : "—"}
+                      </TableCell>
+                    )}
+                    <TableCell className="font-mono text-sm">
+                      {formatAmount(bet.payout)}
+                    </TableCell>
+                    <TableCell>
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          "text-xs capitalize",
+                          DIFFICULTY_COLORS[bet.difficulty]
+                        )}
+                      >
+                        {bet.difficulty}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="font-mono text-xs text-muted-foreground">
+                      {bet.round_target && bet.round_result ? (
+                        <div className="space-y-1">
+                          <div>T: {bet.round_target.toFixed(2)}</div>
+                          <div>R: {bet.round_result.toFixed(2)}</div>
+                        </div>
+                      ) : (
+                        "—"
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })
             )}
           </TableBody>
         </Table>
@@ -548,3 +739,4 @@ function LiveBetTable({
 }
 
 export { LiveBetTable };
+export default LiveBetTable;

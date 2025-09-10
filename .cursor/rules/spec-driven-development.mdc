@@ -1,7 +1,5 @@
 ---
-description: Spec-Driven Development Methodology
-globs:
-alwaysApply: true
+alwaysApply: false
 ---
 # AI-DLC and Spec-Driven Development
 
