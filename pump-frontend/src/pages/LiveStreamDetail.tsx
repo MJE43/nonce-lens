@@ -37,14 +37,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
+// import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -70,6 +63,7 @@ import {
 
 import { Skeleton } from "@/components/ui/skeleton";
 // import { formatDistance } from "date-fns";
+import { LiveBetTable } from "@/components/LiveBetTable";
 
 const LiveStreamDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -174,21 +168,7 @@ const LiveStreamDetail = () => {
     return hash.substring(0, 16) + "...";
   };
 
-  // Get difficulty badge color
-  const getDifficultyColor = (difficulty: string) => {
-    switch (difficulty) {
-      case "easy":
-        return "bg-green-600";
-      case "medium":
-        return "bg-yellow-600";
-      case "hard":
-        return "bg-orange-600";
-      case "expert":
-        return "bg-red-600";
-      default:
-        return "bg-gray-600";
-    }
-  };
+  // Difficulty color handled inside LiveBetTable
 
   // Filter bets based on minMultiplier (using round_result instead of payout_multiplier)
   const filteredBets = minMultiplier
@@ -678,79 +658,26 @@ const LiveStreamDetail = () => {
                 </p>
               </div>
             ) : (
-              <div className="overflow-x-auto">
-                <Table>
-                  <TableHeader>
-                    <TableRow className="border-slate-700">
-                      <TableHead className="text-slate-300">Nonce</TableHead>
-                      <TableHead className="text-slate-300">
-                        Date/Time
-                      </TableHead>
-                      <TableHead className="text-slate-300">Amount</TableHead>
-                      <TableHead className="text-slate-300">
-                        Multiplier
-                      </TableHead>
-                      <TableHead className="text-slate-300">Payout</TableHead>
-                      <TableHead className="text-slate-300">
-                        Difficulty
-                      </TableHead>
-                      <TableHead className="text-slate-300">Target</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {sortedBets.map((bet) => (
-                      <TableRow
-                        key={bet.id}
-                        className="border-slate-700 hover:bg-slate-700/30 transition-colors"
-                      >
-                        <TableCell className="font-mono text-slate-300">
-                          {bet.nonce.toLocaleString()}
-                        </TableCell>
-                        <TableCell className="text-slate-400 text-sm">
-                          {bet.date_time
-                            ? formatTimestamp(bet.date_time)
-                            : formatTimestamp(bet.received_at)}
-                        </TableCell>
-                        <TableCell className="font-mono text-slate-300">
-                          {bet.amount.toFixed(8)}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            variant="outline"
-                            className={`${
-                              (bet.round_result || 0) >= 1000
-                                ? "border-yellow-500/50 text-yellow-400"
-                                : (bet.round_result || 0) >= 100
-                                ? "border-orange-500/50 text-orange-400"
-                                : (bet.round_result || 0) >= 10
-                                ? "border-blue-500/50 text-blue-400"
-                                : "border-slate-500/50 text-slate-400"
-                            }`}
-                          >
-                            {bet.round_result?.toFixed(2) || "0.00"}x
-                          </Badge>
-                        </TableCell>
-                        {/* Distance column temporarily removed */}
-                        <TableCell className="font-mono text-slate-300">
-                          {bet.payout.toFixed(8)}
-                        </TableCell>
-                        <TableCell>
-                          <Badge
-                            className={`${getDifficultyColor(
-                              bet.difficulty
-                            )} text-white`}
-                          >
-                            {bet.difficulty}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="font-mono text-slate-400 text-sm">
-                          {bet.round_target?.toFixed(2) || "—"}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
+              <LiveBetTable
+                bets={realTimeBets.bets}
+                isLoading={betsLoading}
+                filters={{ minMultiplier: minMultiplier }}
+                onFilter={(f) => {
+                  if (typeof f.minMultiplier !== "undefined") {
+                    setMinMultiplier(f.minMultiplier);
+                  }
+                }}
+                sortField={orderBy === "nonce_asc" ? "nonce" : "id"}
+                sortDirection={orderBy === "nonce_asc" ? "asc" : "desc"}
+                onSort={(field, direction) => {
+                  if (field === "nonce" && direction === "asc") {
+                    setOrderBy("nonce_asc");
+                  } else {
+                    setOrderBy("id_desc");
+                  }
+                }}
+                showDistanceColumn={true}
+              />
             )}
           </CardContent>
         </Card>

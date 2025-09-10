@@ -30,13 +30,13 @@ This document breaks down the refactoring of `LiveStreamDetail.tsx` into actiona
 
 **Objective**: Replace the legacy inline table with the new, feature-rich `LiveBetTable` component.
 
--   **Task 2.1: Replace Table Implementation**
+-   **Task 2.1: Replace Table Implementation** ✅
     -   **Description**: Remove the entire `<Table>...</Table>` block (lines 747-819) and replace it with the `<LiveBetTable />` component.
     -   **Implementation**:
         1.  Delete the JSX for the old table.
         2.  Import and render the `LiveBetTable` component in its place.
 
--   **Task 2.2: Connect State to Props**
+-   **Task 2.2: Connect State to Props** ✅
     -   **Description**: Pass the required data and handlers from the `LiveStreamDetail` component's state (now managed by hooks) to the `LiveBetTable` component as props.
     -   **Implementation**:
         1.  Connect the `bets` state to the `bets` prop.
