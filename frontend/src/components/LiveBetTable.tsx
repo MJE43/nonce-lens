@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { cn } from "@/lib/utils"; // if not already present
 import {
   Table,
   TableBody,
@@ -28,7 +29,6 @@ import {
   flexRender,
 } from "@tanstack/react-table";
 import { useVirtualizer } from "@tanstack/react-virtual";
-import { cn } from "@/lib/utils";
 import { createColumns } from "./live-streams/columns";
 import type { BetRecord } from "@/lib/api";
 
@@ -219,14 +219,21 @@ function LiveBetTable({
     enableGlobalFilter: false,
   });
 
-  // Reset filters when new bets arrive (preserves scroll/column state)
   const prevCountRef = useRef<number>(bets.length);
   useEffect(() => {
     if (bets.length > prevCountRef.current) {
       table.resetColumnFilters();
     }
     prevCountRef.current = bets.length;
-  }, [bets.length, table]);
+  }, [bets.length]);
+
+  const prevMode = useRef<boolean>(isAnalysisMode);
+  useEffect(() => {
+    if (prevMode.current !== isAnalysisMode) {
+      setSorting([{ id: "nonce", desc: !isAnalysisMode }]);
+      prevMode.current = isAnalysisMode;
+    }
+  }, [isAnalysisMode]);
 
   const tableRef = useRef<HTMLDivElement>(null);
 

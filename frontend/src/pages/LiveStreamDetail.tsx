@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import {
   useEnhancedStreamDetail,
@@ -57,6 +57,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 // import { formatDistance } from "date-fns";
 import { LiveBetTable } from "@/components/LiveBetTable";
+import { MultiplierTracker } from "@/components/live-streams/MultiplierTracker";
 
 const LiveStreamDetail = () => {
   const { id } = useParams<{ id: string }>();
@@ -75,6 +76,7 @@ const LiveStreamDetail = () => {
   const [focusedMultiplier, setFocusedMultiplier] = useState<number | null>(
     null
   );
+  const [multiplierInput, setMultiplierInput] = useState<string>("");
   const isAnalysisMode = minMultiplier !== null && minMultiplier > 0;
 
   // Shared, memoized filters to stabilize query keys
@@ -103,7 +105,12 @@ const LiveStreamDetail = () => {
   const betsLoading = currentQuery.isLoading;
 
   // Analytics state hook for processing incoming bets
-  const { updateFromTail } = useAnalyticsState(id!);
+  const {
+    state: analyticsState,
+    updateFromTail,
+    pinMultiplier,
+    unpinMultiplier,
+  } = useAnalyticsState(id!);
 
   // Update analytics when bets change
   useEffect(() => {
@@ -141,6 +148,35 @@ const LiveStreamDetail = () => {
       focusedMultiplier
     );
   }, [isAnalysisMode, focusedMultiplier, currentQuery.bets, distanceById]);
+
+  // Extract distinct multipliers from stream data
+  const streamMultipliers = useMemo(() => {
+    const multipliers = new Set<number>();
+    currentQuery.bets.forEach((bet) => {
+      const multiplier = bet.round_result ?? bet.payout_multiplier;
+      if (multiplier && multiplier > 0) {
+        multipliers.add(Math.round(multiplier * 100) / 100); // Round to 2 decimal places
+      }
+    });
+    return Array.from(multipliers).sort((a, b) => a - b);
+  }, [currentQuery.bets]);
+
+  // Detect difficulty based on highest multiplier seen
+  const detectedDifficulty = useMemo(() => {
+    if (streamMultipliers.length === 0) return "expert";
+    const maxMultiplier = Math.max(...streamMultipliers);
+    if (maxMultiplier >= 100000) return "expert";
+    if (maxMultiplier >= 10000) return "hard";
+    if (maxMultiplier >= 1000) return "medium";
+    return "easy";
+  }, [streamMultipliers]);
+
+  // Handle show distances functionality
+  const handleShowDistances = useCallback((multiplier: number) => {
+    setFocusedMultiplier(multiplier);
+    // Scroll to the first occurrence of this multiplier in the table
+    // This will be handled by the LiveBetTable component
+  }, []);
 
   const {
     data: streamDetail,
@@ -197,6 +233,30 @@ const LiveStreamDetail = () => {
     } catch (error) {
       showErrorToast(error, "Failed to export CSV. Please try again.");
     }
+  };
+
+  // Handle multiplier input and apply analysis mode
+  const handleApplyMultiplier = () => {
+    const value = parseFloat(multiplierInput);
+    if (value && value > 0) {
+      setMinMultiplier(value);
+      setFocusedMultiplier(null);
+    } else {
+      setMinMultiplier(null);
+      setFocusedMultiplier(null);
+    }
+  };
+
+  const handleMultiplierKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleApplyMultiplier();
+    }
+  };
+
+  const handleExitAnalysis = () => {
+    setMinMultiplier(null);
+    setFocusedMultiplier(null);
+    setMultiplierInput("");
   };
 
   // Format timestamp
@@ -356,24 +416,27 @@ const LiveStreamDetail = () => {
                   id="min-multiplier"
                   type="number"
                   placeholder="1000"
-                  value={minMultiplier || ""}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    setMinMultiplier(value ? Number(value) : null);
-                    if (!value) {
-                      setFocusedMultiplier(null);
-                    }
-                  }}
+                  value={multiplierInput}
+                  onChange={(e) => setMultiplierInput(e.target.value)}
+                  onKeyPress={handleMultiplierKeyPress}
                   className="w-20 px-2 py-1 text-sm border rounded-md bg-background"
                   step="0.01"
                   min="0"
                 />
+                <Button
+                  onClick={handleApplyMultiplier}
+                  variant="default"
+                  size="sm"
+                  className="text-xs"
+                  disabled={
+                    !multiplierInput || parseFloat(multiplierInput) <= 0
+                  }
+                >
+                  Apply
+                </Button>
                 {isAnalysisMode && (
                   <Button
-                    onClick={() => {
-                      setMinMultiplier(null);
-                      setFocusedMultiplier(null);
-                    }}
+                    onClick={handleExitAnalysis}
                     variant="outline"
                     size="sm"
                     className="text-xs"
@@ -396,219 +459,235 @@ const LiveStreamDetail = () => {
           }}
         />
 
-        {/* Stream Metadata Card */}
-        <Card className="shadow-md">
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="flex items-center gap-2">
-                <Hash className="w-5 h-5 text-primary" />
-                Stream Information
-              </CardTitle>
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-2 text-green-600">
-                  <div className="w-2 h-2 rounded-full bg-green-600 animate-pulse"></div>
-                  <span className="text-sm font-medium">Live</span>
-                  {highFrequencyMode && (
-                    <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
-                      HF
-                    </span>
+        {/* Stream Information and Multiplier Tracker */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* Stream Metadata Card */}
+          <Card className="shadow-md">
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <CardTitle className="flex items-center gap-2">
+                  <Hash className="w-5 h-5 text-primary" />
+                  Stream Information
+                </CardTitle>
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 text-green-600">
+                    <div className="w-2 h-2 rounded-full bg-green-600 animate-pulse"></div>
+                    <span className="text-sm font-medium">Live</span>
+                    {highFrequencyMode && (
+                      <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full font-medium">
+                        HF
+                      </span>
+                    )}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleExportCsv}
+                    disabled={bets.length === 0}
+                    className="gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    Export CSV
+                  </Button>
+                  {!isEditingNotes ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setIsEditingNotes(true)}
+                      className="gap-2"
+                    >
+                      <Edit3 className="w-4 h-4" />
+                      Edit Notes
+                    </Button>
+                  ) : (
+                    <Button
+                      variant="default"
+                      size="sm"
+                      onClick={handleSaveNotes}
+                      disabled={updateStreamMutation.isPending}
+                      className="gap-2"
+                    >
+                      <Save className="w-4 h-4" />
+                      {updateStreamMutation.isPending ? "Saving..." : "Save"}
+                    </Button>
                   )}
                 </div>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {/* Seed Information */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2 text-sm font-medium">
+                    <Hash className="w-4 h-4" />
+                    Server Seed Hash
+                  </Label>
+                  <div className="font-mono text-sm bg-muted p-3 rounded-md border">
+                    <span>
+                      {formatSeedPrefix(streamDetail.server_seed_hashed)}
+                    </span>
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label className="flex items-center gap-2 text-sm font-medium">
+                    <Key className="w-4 h-4" />
+                    Client Seed
+                  </Label>
+                  <div className="font-mono text-sm bg-muted p-3 rounded-md border">
+                    <span>{streamDetail.client_seed}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Statistics */}
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="text-center p-4 bg-muted/50 rounded-lg border">
+                  <div className="text-2xl font-bold">
+                    {streamDetail.total_bets.toLocaleString()}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    Total Bets
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-muted/50 rounded-lg border">
+                  <div className="text-2xl font-bold text-orange-600">
+                    {streamDetail.highest_multiplier?.toFixed(2) || "0.00"}x
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    Highest Multiplier
+                  </div>
+                </div>
+                <div className="text-center p-4 bg-muted/50 rounded-lg border">
+                  <div className="text-2xl font-bold text-blue-400">
+                    {formatTimestamp(streamDetail.created_at).split(",")[0]}
+                  </div>
+                  <div className="text-sm text-muted-foreground">Created</div>
+                </div>
+                <div className="text-center p-4 bg-muted/50 rounded-lg border">
+                  <div className="text-2xl font-bold text-green-400">
+                    {formatTimestamp(streamDetail.last_seen_at).split(",")[1]}
+                  </div>
+                  <div className="text-sm text-muted-foreground">Last Seen</div>
+                </div>
+              </div>
+
+              {/* Notes Section */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-slate-300">Notes</Label>
+                  {!isEditingNotes ? (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setIsEditingNotes(true)}
+                    >
+                      <Edit3 className="w-4 h-4 mr-2" />
+                      Edit
+                    </Button>
+                  ) : (
+                    <div className="flex gap-2">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={handleSaveNotes}
+                        disabled={updateStreamMutation.isPending}
+                      >
+                        <Save className="w-4 h-4 mr-2" />
+                        Save
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setIsEditingNotes(false);
+                          setNotesValue(streamDetail.notes || "");
+                        }}
+                      >
+                        <ArrowLeft className="w-4 h-4 mr-2" />
+                        Cancel
+                      </Button>
+                    </div>
+                  )}
+                </div>
+                {isEditingNotes ? (
+                  <Textarea
+                    value={notesValue}
+                    onChange={(e) => setNotesValue(e.target.value)}
+                    placeholder="Add notes about this stream..."
+                    className="bg-slate-900/50 border-slate-700 text-slate-300"
+                    rows={3}
+                  />
+                ) : (
+                  <div className="bg-slate-900/50 p-3 rounded border border-slate-700 min-h-[80px]">
+                    <span className="text-slate-300">
+                      {streamDetail.notes || "No notes added"}
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex flex-wrap gap-3 pt-4 border-t border-slate-700">
                 <Button
                   variant="outline"
-                  size="sm"
                   onClick={handleExportCsv}
-                  disabled={bets.length === 0}
-                  className="gap-2"
+                  className="flex items-center gap-2"
                 >
                   <Download className="w-4 h-4" />
                   Export CSV
                 </Button>
-                {!isEditingNotes ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setIsEditingNotes(true)}
-                    className="gap-2"
-                  >
-                    <Edit3 className="w-4 h-4" />
-                    Edit Notes
-                  </Button>
-                ) : (
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={handleSaveNotes}
-                    disabled={updateStreamMutation.isPending}
-                    className="gap-2"
-                  >
-                    <Save className="w-4 h-4" />
-                    {updateStreamMutation.isPending ? "Saving..." : "Save"}
-                  </Button>
-                )}
-              </div>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-6">
-            {/* Seed Information */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              <div className="space-y-2">
-                <Label className="flex items-center gap-2 text-sm font-medium">
-                  <Hash className="w-4 h-4" />
-                  Server Seed Hash
-                </Label>
-                <div className="font-mono text-sm bg-muted p-3 rounded-md border">
-                  <span>
-                    {formatSeedPrefix(streamDetail.server_seed_hashed)}
-                  </span>
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label className="flex items-center gap-2 text-sm font-medium">
-                  <Key className="w-4 h-4" />
-                  Client Seed
-                </Label>
-                <div className="font-mono text-sm bg-muted p-3 rounded-md border">
-                  <span>{streamDetail.client_seed}</span>
-                </div>
-              </div>
-            </div>
 
-            {/* Statistics */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-              <div className="text-center p-4 bg-muted/50 rounded-lg border">
-                <div className="text-2xl font-bold">
-                  {streamDetail.total_bets.toLocaleString()}
-                </div>
-                <div className="text-sm text-muted-foreground">Total Bets</div>
-              </div>
-              <div className="text-center p-4 bg-muted/50 rounded-lg border">
-                <div className="text-2xl font-bold text-orange-600">
-                  {streamDetail.highest_multiplier?.toFixed(2) || "0.00"}x
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  Highest Multiplier
-                </div>
-              </div>
-              <div className="text-center p-4 bg-muted/50 rounded-lg border">
-                <div className="text-2xl font-bold text-blue-400">
-                  {formatTimestamp(streamDetail.created_at).split(",")[0]}
-                </div>
-                <div className="text-sm text-muted-foreground">Created</div>
-              </div>
-              <div className="text-center p-4 bg-muted/50 rounded-lg border">
-                <div className="text-2xl font-bold text-green-400">
-                  {formatTimestamp(streamDetail.last_seen_at).split(",")[1]}
-                </div>
-                <div className="text-sm text-muted-foreground">Last Seen</div>
-              </div>
-            </div>
-
-            {/* Notes Section */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-slate-300">Notes</Label>
-                {!isEditingNotes ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setIsEditingNotes(true)}
-                  >
-                    <Edit3 className="w-4 h-4 mr-2" />
-                    Edit
-                  </Button>
-                ) : (
-                  <div className="flex gap-2">
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
                     <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleSaveNotes}
-                      disabled={updateStreamMutation.isPending}
+                      variant="destructive"
+                      className="flex items-center gap-2"
                     >
-                      <Save className="w-4 h-4 mr-2" />
-                      Save
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => {
-                        setIsEditingNotes(false);
-                        setNotesValue(streamDetail.notes || "");
-                      }}
-                    >
-                      <ArrowLeft className="w-4 h-4 mr-2" />
-                      Cancel
-                    </Button>
-                  </div>
-                )}
-              </div>
-              {isEditingNotes ? (
-                <Textarea
-                  value={notesValue}
-                  onChange={(e) => setNotesValue(e.target.value)}
-                  placeholder="Add notes about this stream..."
-                  className="bg-slate-900/50 border-slate-700 text-slate-300"
-                  rows={3}
-                />
-              ) : (
-                <div className="bg-slate-900/50 p-3 rounded border border-slate-700 min-h-[80px]">
-                  <span className="text-slate-300">
-                    {streamDetail.notes || "No notes added"}
-                  </span>
-                </div>
-              )}
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex flex-wrap gap-3 pt-4 border-t border-slate-700">
-              <Button
-                variant="outline"
-                onClick={handleExportCsv}
-                className="flex items-center gap-2"
-              >
-                <Download className="w-4 h-4" />
-                Export CSV
-              </Button>
-
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button
-                    variant="destructive"
-                    className="flex items-center gap-2"
-                  >
-                    <Trash2 className="w-4 h-4" />
-                    Delete Stream
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent className="bg-slate-800 border-slate-700">
-                  <AlertDialogHeader>
-                    <AlertDialogTitle className="text-white">
+                      <Trash2 className="w-4 h-4" />
                       Delete Stream
-                    </AlertDialogTitle>
-                    <AlertDialogDescription className="text-slate-300">
-                      This will permanently delete the stream and all associated
-                      bet data. This action cannot be undone.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel className="bg-slate-700 text-slate-300 border-slate-600">
-                      Cancel
-                    </AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={handleDeleteStream}
-                      className="bg-red-600 hover:bg-red-700"
-                      disabled={deleteStreamMutation.isPending}
-                    >
-                      {deleteStreamMutation.isPending
-                        ? "Deleting..."
-                        : "Delete"}
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            </div>
-          </CardContent>
-        </Card>
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent className="bg-slate-800 border-slate-700">
+                    <AlertDialogHeader>
+                      <AlertDialogTitle className="text-white">
+                        Delete Stream
+                      </AlertDialogTitle>
+                      <AlertDialogDescription className="text-slate-300">
+                        This will permanently delete the stream and all
+                        associated bet data. This action cannot be undone.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel className="bg-slate-700 text-slate-300 border-slate-600">
+                        Cancel
+                      </AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handleDeleteStream}
+                        className="bg-red-600 hover:bg-red-700"
+                        disabled={deleteStreamMutation.isPending}
+                      >
+                        {deleteStreamMutation.isPending
+                          ? "Deleting..."
+                          : "Delete"}
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Multiplier Tracker */}
+          <MultiplierTracker
+            pinnedMultipliers={analyticsState.pinnedMultipliers}
+            streamMultipliers={streamMultipliers}
+            difficulty={detectedDifficulty}
+            onPin={pinMultiplier}
+            onUnpin={unpinMultiplier}
+            onShowDistances={handleShowDistances}
+            className="h-fit"
+          />
+        </div>
 
         {/* Analysis Mode Stats */}
         {isAnalysisMode && (

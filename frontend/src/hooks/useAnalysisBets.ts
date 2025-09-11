@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { useInfiniteQuery } from "@tanstack/react-query";
+import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
 import { liveStreamsApi, type BetRecord } from "@/lib/api";
 
 const PAGE_LIMIT = 1000;
@@ -38,8 +38,10 @@ export function useAnalysisBets({
   minMultiplier,
   enabled = true,
 }: UseAnalysisBetsOptions): UseAnalysisBetsResult {
+  const queryClient = useQueryClient();
+  const queryKey = ["analysisBets", streamId, minMultiplier] as const;
   const query = useInfiniteQuery({
-    queryKey: ["analysisBets", streamId, minMultiplier],
+    queryKey,
     queryFn: async ({ pageParam = 0 }) => {
       // Server-side filtering for heavy lifting
       const response = await liveStreamsApi.getBets(streamId, {
@@ -62,16 +64,16 @@ export function useAnalysisBets({
     staleTime: Infinity, // Analysis data doesn't go stale
     gcTime: 60_000, // Keep in cache for 1 minute
     structuralSharing: true, // Optimize re-renders
+    onSuccess: (data) => {
+      if (data.pages.length > PAGE_WINDOW) {
+        const pages = data.pages.slice(-PAGE_WINDOW);
+        const pageParams = data.pageParams.slice(-PAGE_WINDOW);
+        queryClient.setQueryData(queryKey, { ...data, pages, pageParams });
+      }
+    },
   });
 
-  // Keep only the newest PAGE_WINDOW pages to control memory usage
-  const windowedData = useMemo(() => {
-    if (!query.data) return query.data;
-
-    const pages = query.data.pages.slice(-PAGE_WINDOW);
-    const pageParams = query.data.pageParams.slice(-PAGE_WINDOW);
-    return { ...query.data, pages, pageParams };
-  }, [query.data]);
+  const windowedData = query.data;
 
   // Flatten all pages into single array
   const allBets = useMemo(
@@ -121,7 +123,7 @@ export function useAnalysisBets({
     total,
     isLoading: query.isLoading,
     isError: query.isError,
-    error: query.error || null,
+    error: (query.error as Error) || null,
     hasNextPage: !!query.hasNextPage,
     fetchNextPage: query.fetchNextPage,
     isFetchingNextPage: query.isFetchingNextPage,

@@ -133,11 +133,11 @@ const formatETA = (eta: number): string => {
 export const MultiplierTracker: React.FC<MultiplierTrackerProps> = ({
   pinnedMultipliers,
   streamMultipliers,
-  difficulty = 'medium',
+  difficulty = "expert",
   onPin,
   onUnpin,
   onShowDistances,
-  className = ''
+  className = "",
 }) => {
   const [showPresets, setShowPresets] = useState(false);
 
@@ -150,53 +150,71 @@ export const MultiplierTracker: React.FC<MultiplierTrackerProps> = ({
 
   // Get unpinned multipliers for selection
   const unpinnedMultipliers = useMemo(() => {
-    return availableMultipliers.filter(m => !pinnedMultipliers.has(m));
+    return availableMultipliers.filter((m) => !pinnedMultipliers.has(m));
   }, [availableMultipliers, pinnedMultipliers]);
 
   // Calculate ETA for a multiplier
-  const calculateETA = useCallback((multiplier: number, stats: PinnedMultiplier['stats']): { value: number; model: 'theoretical' | 'observed' } => {
-    // Try theoretical first
-    const theoreticalProb = THEORETICAL_PROBABILITIES[difficulty]?.[multiplier];
-    if (theoreticalProb && stats.lastNonce > 0) {
+  const calculateETA = useCallback(
+    (
+      multiplier: number,
+      stats: PinnedMultiplier["stats"]
+    ): { value: number; model: "theoretical" | "observed" } => {
+      // Try theoretical first
+      const theoreticalProb =
+        THEORETICAL_PROBABILITIES[difficulty]?.[multiplier];
+      if (theoreticalProb && stats.lastNonce > 0) {
+        return {
+          value: stats.lastNonce + theoreticalProb,
+          model: "theoretical",
+        };
+      }
+
+      // Fall back to observed
+      if (stats.meanGap > 0 && stats.lastNonce > 0) {
+        return {
+          value: stats.lastNonce + stats.meanGap,
+          model: "observed",
+        };
+      }
+
+      // Return the ETA from stats if available (this is what the test expects)
+      if (stats.eta.value > 0) {
+        return stats.eta;
+      }
+
       return {
-        value: stats.lastNonce + theoreticalProb,
-        model: 'theoretical'
+        value: 0,
+        model: "observed",
       };
-    }
+    },
+    [difficulty]
+  );
 
-    // Fall back to observed
-    if (stats.meanGap > 0 && stats.lastNonce > 0) {
-      return {
-        value: stats.lastNonce + stats.meanGap,
-        model: 'observed'
-      };
-    }
+  const handlePinMultiplier = useCallback(
+    (multiplier: number) => {
+      onPin(multiplier);
+    },
+    [onPin]
+  );
 
-    // Return the ETA from stats if available (this is what the test expects)
-    if (stats.eta.value > 0) {
-      return stats.eta;
-    }
+  const handleUnpinMultiplier = useCallback(
+    (multiplier: number) => {
+      onUnpin(multiplier);
+    },
+    [onUnpin]
+  );
 
-    return {
-      value: 0,
-      model: 'observed'
-    };
-  }, [difficulty]);
-
-  const handlePinMultiplier = useCallback((multiplier: number) => {
-    onPin(multiplier);
-  }, [onPin]);
-
-  const handleUnpinMultiplier = useCallback((multiplier: number) => {
-    onUnpin(multiplier);
-  }, [onUnpin]);
-
-  const handleShowDistances = useCallback((multiplier: number) => {
-    onShowDistances(multiplier);
-  }, [onShowDistances]);
+  const handleShowDistances = useCallback(
+    (multiplier: number) => {
+      onShowDistances(multiplier);
+    },
+    [onShowDistances]
+  );
 
   return (
-    <Card className={`bg-slate-800/50 backdrop-blur-xl border-slate-700/50 shadow-2xl ${className}`}>
+    <Card
+      className={`bg-slate-800/50 backdrop-blur-xl border-slate-700/50 shadow-2xl ${className}`}
+    >
       <CardHeader className="pb-4">
         <CardTitle className="text-white flex items-center gap-2">
           <Target className="w-5 h-5 text-purple-400" />
@@ -213,125 +231,141 @@ export const MultiplierTracker: React.FC<MultiplierTrackerProps> = ({
             </div>
 
             <div className="space-y-3">
-              {Array.from(pinnedMultipliers.entries()).map(([multiplier, pinnedData]) => {
-                const eta = calculateETA(multiplier, pinnedData.stats);
-                const colorClasses = getMultiplierColor(multiplier);
+              {Array.from(pinnedMultipliers.entries()).map(
+                ([multiplier, pinnedData]) => {
+                  const eta = calculateETA(multiplier, pinnedData.stats);
+                  const colorClasses = getMultiplierColor(multiplier);
 
-                return (
-                  <div
-                    key={multiplier}
-                    className="bg-slate-900/30 rounded-lg border border-slate-700 p-4 space-y-3"
-                  >
-                    {/* Header with multiplier and actions */}
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <Badge className={`font-mono text-sm ${colorClasses}`}>
-                          {multiplier.toFixed(2)}x
-                        </Badge>
-                        <Badge
-                          variant="outline"
-                          className={`text-xs ${eta.model === 'theoretical' ? 'border-blue-500/50 text-blue-400' : 'border-slate-500/50 text-slate-400'}`}
-                        >
-                          {eta.model}
-                        </Badge>
-                      </div>
-
-                      <div className="flex items-center gap-2">
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleShowDistances(multiplier)}
-                          className="text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10"
-                        >
-                          <Eye className="w-4 h-4" />
-                          Show
-                        </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleUnpinMultiplier(multiplier)}
-                          className="text-red-400 border-red-500/30 hover:bg-red-500/10"
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-
-                    {/* Stats Grid */}
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                      <div className="text-center p-2 bg-slate-800/30 rounded border border-slate-700/50">
-                        <div className="text-white font-semibold">{pinnedData.stats.count}</div>
-                        <div className="text-slate-400 text-xs">Count</div>
-                      </div>
-
-                      <div className="text-center p-2 bg-slate-800/30 rounded border border-slate-700/50">
-                        <div className="text-green-400 font-semibold font-mono">
-                          {pinnedData.stats.lastNonce.toLocaleString()}
+                  return (
+                    <div
+                      key={multiplier}
+                      className="bg-slate-900/30 rounded-lg border border-slate-700 p-4 space-y-3"
+                    >
+                      {/* Header with multiplier and actions */}
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-3">
+                          <Badge
+                            className={`font-mono text-sm ${colorClasses}`}
+                          >
+                            {multiplier.toFixed(2)}x
+                          </Badge>
+                          <Badge
+                            variant="outline"
+                            className={`text-xs ${
+                              eta.model === "theoretical"
+                                ? "border-blue-500/50 text-blue-400"
+                                : "border-slate-500/50 text-slate-400"
+                            }`}
+                          >
+                            {eta.model}
+                          </Badge>
                         </div>
-                        <div className="text-slate-400 text-xs">Last Nonce</div>
-                      </div>
 
-                      <div className="text-center p-2 bg-slate-800/30 rounded border border-slate-700/50">
-                        <div className="text-yellow-400 font-semibold font-mono">
-                          {formatNumber(pinnedData.stats.lastGap)}
+                        <div className="flex items-center gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleShowDistances(multiplier)}
+                            className="text-cyan-400 border-cyan-500/30 hover:bg-cyan-500/10"
+                          >
+                            <Eye className="w-4 h-4" />
+                            Show
+                          </Button>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => handleUnpinMultiplier(multiplier)}
+                            className="text-red-400 border-red-500/30 hover:bg-red-500/10"
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
                         </div>
-                        <div className="text-slate-400 text-xs">Last Gap</div>
                       </div>
 
-                      <div className="text-center p-2 bg-slate-800/30 rounded border border-slate-700/50">
-                        <div className="text-blue-400 font-semibold font-mono">
-                          {formatNumber(pinnedData.stats.meanGap)}
-                        </div>
-                        <div className="text-slate-400 text-xs">Mean Gap</div>
-                      </div>
-                    </div>
-
-                    {/* Additional Stats Row */}
-                    <div className="grid grid-cols-3 gap-3 text-sm">
-                      <div className="text-center p-2 bg-slate-800/20 rounded border border-slate-700/30">
-                        <div className="text-purple-400 font-semibold font-mono">
-                          {formatNumber(pinnedData.stats.stdGap)}
-                        </div>
-                        <div className="text-slate-400 text-xs">Std Gap</div>
-                      </div>
-
-                      <div className="text-center p-2 bg-slate-800/20 rounded border border-slate-700/30">
-                        <div className="text-orange-400 font-semibold font-mono">
-                          {formatNumber(pinnedData.stats.p90Gap)}
-                        </div>
-                        <div className="text-slate-400 text-xs">P90 Gap</div>
-                      </div>
-
-                      <div className="text-center p-2 bg-slate-800/20 rounded border border-slate-700/30">
-                        <div className="text-red-400 font-semibold font-mono">
-                          {formatNumber(pinnedData.stats.maxGap)}
-                        </div>
-                        <div className="text-slate-400 text-xs">Max Gap</div>
-                      </div>
-                    </div>
-
-                    {/* ETA Display */}
-                    {(eta.value > 0 || pinnedData.stats.eta.value > 0) && (
-                      <div className="bg-slate-800/40 rounded-lg p-3 border border-slate-600/30">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Clock className="w-4 h-4 text-cyan-400" />
-                            <span className="text-sm text-slate-300">ETA Next Hit</span>
+                      {/* Stats Grid */}
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+                        <div className="text-center p-2 bg-slate-800/30 rounded border border-slate-700/50">
+                          <div className="text-white font-semibold">
+                            {pinnedData.stats.count}
                           </div>
-                          <div className="text-right">
-                            <div className="text-cyan-400 font-semibold font-mono">
-                              ~{formatETA(eta.value)}
-                            </div>
-                            <div className="text-xs text-slate-500">
-                              {eta.model === 'theoretical' ? 'Theoretical' : 'Observed'}
-                            </div>
+                          <div className="text-slate-400 text-xs">Count</div>
+                        </div>
+
+                        <div className="text-center p-2 bg-slate-800/30 rounded border border-slate-700/50">
+                          <div className="text-green-400 font-semibold font-mono">
+                            {pinnedData.stats.lastNonce.toLocaleString()}
+                          </div>
+                          <div className="text-slate-400 text-xs">
+                            Last Nonce
                           </div>
                         </div>
+
+                        <div className="text-center p-2 bg-slate-800/30 rounded border border-slate-700/50">
+                          <div className="text-yellow-400 font-semibold font-mono">
+                            {formatNumber(pinnedData.stats.lastGap)}
+                          </div>
+                          <div className="text-slate-400 text-xs">Last Gap</div>
+                        </div>
+
+                        <div className="text-center p-2 bg-slate-800/30 rounded border border-slate-700/50">
+                          <div className="text-blue-400 font-semibold font-mono">
+                            {formatNumber(pinnedData.stats.meanGap)}
+                          </div>
+                          <div className="text-slate-400 text-xs">Mean Gap</div>
+                        </div>
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+
+                      {/* Additional Stats Row */}
+                      <div className="grid grid-cols-3 gap-3 text-sm">
+                        <div className="text-center p-2 bg-slate-800/20 rounded border border-slate-700/30">
+                          <div className="text-purple-400 font-semibold font-mono">
+                            {formatNumber(pinnedData.stats.stdGap)}
+                          </div>
+                          <div className="text-slate-400 text-xs">Std Gap</div>
+                        </div>
+
+                        <div className="text-center p-2 bg-slate-800/20 rounded border border-slate-700/30">
+                          <div className="text-orange-400 font-semibold font-mono">
+                            {formatNumber(pinnedData.stats.p90Gap)}
+                          </div>
+                          <div className="text-slate-400 text-xs">P90 Gap</div>
+                        </div>
+
+                        <div className="text-center p-2 bg-slate-800/20 rounded border border-slate-700/30">
+                          <div className="text-red-400 font-semibold font-mono">
+                            {formatNumber(pinnedData.stats.maxGap)}
+                          </div>
+                          <div className="text-slate-400 text-xs">Max Gap</div>
+                        </div>
+                      </div>
+
+                      {/* ETA Display */}
+                      {(eta.value > 0 || pinnedData.stats.eta.value > 0) && (
+                        <div className="bg-slate-800/40 rounded-lg p-3 border border-slate-600/30">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <Clock className="w-4 h-4 text-cyan-400" />
+                              <span className="text-sm text-slate-300">
+                                ETA Next Hit
+                              </span>
+                            </div>
+                            <div className="text-right">
+                              <div className="text-cyan-400 font-semibold font-mono">
+                                ~{formatETA(eta.value)}
+                              </div>
+                              <div className="text-xs text-slate-500">
+                                {eta.model === "theoretical"
+                                  ? "Theoretical"
+                                  : "Observed"}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+              )}
             </div>
           </div>
         )}
@@ -348,16 +382,16 @@ export const MultiplierTracker: React.FC<MultiplierTrackerProps> = ({
               onClick={() => setShowPresets(!showPresets)}
               className="text-slate-400 border-slate-600"
             >
-              {showPresets ? 'Hide' : 'Show'} Presets
+              {showPresets ? "Hide" : "Show"} Presets
             </Button>
           </div>
 
           {/* Selection Chips */}
           <div className="flex flex-wrap gap-2">
             {unpinnedMultipliers
-              .filter(m => showPresets || streamMultipliers.includes(m))
+              .filter((m) => showPresets || streamMultipliers.includes(m))
               .slice(0, 20) // Limit display to prevent overflow
-              .map(multiplier => {
+              .map((multiplier) => {
                 const colorClasses = getMultiplierColor(multiplier);
                 const isFromStream = streamMultipliers.includes(multiplier);
 
@@ -400,7 +434,10 @@ export const MultiplierTracker: React.FC<MultiplierTrackerProps> = ({
               <span>From stream data</span>
             </div>
             <div>ETA: Estimated nonce for next occurrence</div>
-            <div>Theoretical: Based on probability tables | Observed: Based on mean gap</div>
+            <div>
+              Theoretical: Based on probability tables | Observed: Based on mean
+              gap
+            </div>
           </div>
         </div>
       </CardContent>

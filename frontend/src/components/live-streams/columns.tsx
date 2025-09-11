@@ -205,9 +205,12 @@ export const createColumns = (options: {
         cell: ({ row }) => {
           const bet = row.original;
           const multiplier = bet.round_result ?? bet.payout_multiplier ?? 0;
-          const isFocused =
-            focusedMultiplier !== null &&
-            Math.abs(multiplier - focusedMultiplier) < 0.01;
+
+          const bucket = (m: number) => Math.round(m * 100) / 100;
+          const focusKey =
+            focusedMultiplier !== null ? bucket(focusedMultiplier) : null;
+          const mKey = bucket(multiplier);
+          const isFocused = focusKey !== null && mKey === focusKey;
 
           return (
             <Badge
