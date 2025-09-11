@@ -56,6 +56,11 @@ interface LiveBetTableProps {
   fetchNextPage?: () => void;
   isFetchingNextPage?: boolean;
   totalCount?: number;
+
+  // Analysis mode features
+  focusedMultiplier?: number | null;
+  onMultiplierFocus?: (multiplier: number) => void;
+  isAnalysisMode?: boolean;
 }
 
 /**
@@ -87,6 +92,11 @@ function LiveBetTable({
   fetchNextPage,
   isFetchingNextPage = false,
   totalCount,
+
+  // Analysis mode features
+  focusedMultiplier = null,
+  onMultiplierFocus,
+  isAnalysisMode = false,
 }: LiveBetTableProps) {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "nonce", desc: true },
@@ -173,8 +183,19 @@ function LiveBetTable({
         showDistanceColumn: shouldShowDistance,
         onBookmark: handleBookmark,
         pinnedMultipliers,
+        focusedMultiplier,
+        onMultiplierFocus: onMultiplierFocus,
+        isAnalysisMode,
       }),
-    [showBookmarks, shouldShowDistance, handleBookmark, pinnedMultipliers]
+    [
+      showBookmarks,
+      shouldShowDistance,
+      handleBookmark,
+      pinnedMultipliers,
+      focusedMultiplier,
+      onMultiplierFocus,
+      isAnalysisMode,
+    ]
   );
 
   const table = useReactTable({

@@ -6,8 +6,14 @@ import {
   useEnhancedUpdateStream,
 } from "@/hooks/useEnhancedLiveStreams";
 import { useStreamBetsQuery } from "@/hooks/useStreamBetsQuery";
+import { useAnalysisBets } from "@/hooks/useAnalysisBets";
 import { useAnalyticsState } from "@/hooks/useAnalyticsState";
 import { liveStreamsApi } from "../lib/api";
+import {
+  computeDistancesNonceAsc,
+  getMultiplierStats,
+} from "../lib/analysisMath";
+import { MultiplierStats } from "../components/MultiplierStats";
 import OfflineIndicator from "@/components/OfflineIndicator";
 import { showSuccessToast, showErrorToast } from "../lib/errorHandling";
 import {
@@ -64,30 +70,77 @@ const LiveStreamDetail = () => {
   const [isPolling, setIsPolling] = useState(true);
   const [highFrequencyMode, setHighFrequencyMode] = useState(true); // Default to high frequency for betting
 
+  // Analysis mode state
+  const [minMultiplier, setMinMultiplier] = useState<number | null>(null);
+  const [focusedMultiplier, setFocusedMultiplier] = useState<number | null>(
+    null
+  );
+  const isAnalysisMode = minMultiplier !== null && minMultiplier > 0;
+
   // Shared, memoized filters to stabilize query keys
   const betsFilters = useMemo(
     () => ({ order: "id_desc" as const, limit: 1000 as const }),
     []
   );
 
-  // Fetch bets with real-time streaming
+  // Fetch bets with real-time streaming (normal mode)
   const betsQuery = useStreamBetsQuery({
     streamId: id!,
     filters: betsFilters,
-    enabled: isPolling,
+    enabled: isPolling && !isAnalysisMode,
     pollingInterval: highFrequencyMode ? 500 : 2000,
   });
-  const betsLoading = betsQuery.isLoading;
+
+  // Analysis mode query for deep history
+  const analysisQuery = useAnalysisBets({
+    streamId: id!,
+    minMultiplier: minMultiplier || 0,
+    enabled: isAnalysisMode,
+  });
+
+  // Choose which data to use based on mode
+  const currentQuery = isAnalysisMode ? analysisQuery : betsQuery;
+  const betsLoading = currentQuery.isLoading;
 
   // Analytics state hook for processing incoming bets
   const { updateFromTail } = useAnalyticsState(id!);
 
   // Update analytics when bets change
   useEffect(() => {
-    if (betsQuery.bets.length > 0) {
-      updateFromTail(betsQuery.bets);
+    if (currentQuery.bets.length > 0) {
+      updateFromTail(currentQuery.bets);
     }
-  }, [betsQuery.bets, updateFromTail]);
+  }, [currentQuery.bets, updateFromTail]);
+
+  // Analysis mode: compute distances and statistics
+  const distanceById = useMemo(() => {
+    if (!isAnalysisMode || currentQuery.bets.length === 0) {
+      return new Map();
+    }
+    return computeDistancesNonceAsc(currentQuery.bets);
+  }, [isAnalysisMode, currentQuery.bets]);
+
+  const betsWithDistance = useMemo(() => {
+    if (!isAnalysisMode) {
+      return currentQuery.bets;
+    }
+    return currentQuery.bets.map((bet) => ({
+      ...bet,
+      distance_prev_opt: distanceById.get(bet.id) ?? null,
+    }));
+  }, [currentQuery.bets, isAnalysisMode, distanceById]);
+
+  // Focused multiplier statistics
+  const multiplierStats = useMemo(() => {
+    if (!isAnalysisMode || !focusedMultiplier) {
+      return { count: 0, median: null, min: null, max: null, mean: null };
+    }
+    return getMultiplierStats(
+      currentQuery.bets,
+      distanceById,
+      focusedMultiplier
+    );
+  }, [isAnalysisMode, focusedMultiplier, currentQuery.bets, distanceById]);
 
   const {
     data: streamDetail,
@@ -252,7 +305,7 @@ const LiveStreamDetail = () => {
     );
   }
 
-  const bets = betsQuery.bets;
+  const bets = betsWithDistance;
 
   return (
     <div className="min-h-screen bg-background">
@@ -293,6 +346,42 @@ const LiveStreamDetail = () => {
                 <RefreshCw className="w-4 h-4" />
                 {highFrequencyMode ? "Normal" : "HF Mode"}
               </Button>
+
+              {/* Analysis Mode Controls */}
+              <div className="flex items-center gap-2 pl-4 border-l">
+                <Label htmlFor="min-multiplier" className="text-sm font-medium">
+                  Min Multiplier:
+                </Label>
+                <input
+                  id="min-multiplier"
+                  type="number"
+                  placeholder="1000"
+                  value={minMultiplier || ""}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    setMinMultiplier(value ? Number(value) : null);
+                    if (!value) {
+                      setFocusedMultiplier(null);
+                    }
+                  }}
+                  className="w-20 px-2 py-1 text-sm border rounded-md bg-background"
+                  step="0.01"
+                  min="0"
+                />
+                {isAnalysisMode && (
+                  <Button
+                    onClick={() => {
+                      setMinMultiplier(null);
+                      setFocusedMultiplier(null);
+                    }}
+                    variant="outline"
+                    size="sm"
+                    className="text-xs"
+                  >
+                    Exit Analysis
+                  </Button>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -521,13 +610,27 @@ const LiveStreamDetail = () => {
           </CardContent>
         </Card>
 
+        {/* Analysis Mode Stats */}
+        {isAnalysisMode && (
+          <MultiplierStats
+            focusedMultiplier={focusedMultiplier}
+            stats={multiplierStats}
+            onClearFocus={() => setFocusedMultiplier(null)}
+          />
+        )}
+
         {/* Bets Table */}
         <Card className="shadow-md">
           <CardHeader>
             <div className="flex items-center justify-between">
               <CardTitle className="flex items-center gap-2">
                 <BarChart3 className="w-5 h-5 text-primary" />
-                Betting Activity
+                {isAnalysisMode ? "Analysis Mode" : "Betting Activity"}
+                {isAnalysisMode && (
+                  <span className="text-sm text-muted-foreground ml-2">
+                    ({bets.length.toLocaleString()} bets ≥ {minMultiplier}×)
+                  </span>
+                )}
               </CardTitle>
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Clock className="w-4 h-4" />
@@ -564,12 +667,18 @@ const LiveStreamDetail = () => {
                 isLoading={betsLoading}
                 showDistanceColumn={true}
                 showVirtualScrolling={bets.length > 100}
-                hasNextPage={betsQuery.hasNextPage}
-                fetchNextPage={betsQuery.fetchNextPage}
+                hasNextPage={currentQuery.hasNextPage}
+                fetchNextPage={currentQuery.fetchNextPage}
                 isFetchingNextPage={
-                  betsQuery.isFetching && !!betsQuery.hasNextPage
+                  isAnalysisMode
+                    ? analysisQuery.isFetchingNextPage
+                    : betsQuery.isFetching && !!betsQuery.hasNextPage
                 }
-                totalCount={betsQuery.total}
+                totalCount={currentQuery.total}
+                // Analysis mode features
+                isAnalysisMode={isAnalysisMode}
+                focusedMultiplier={focusedMultiplier}
+                onMultiplierFocus={setFocusedMultiplier}
               />
             )}
           </CardContent>

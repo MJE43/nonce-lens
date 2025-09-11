@@ -70,12 +70,18 @@ export const createColumns = (options: {
   highlightNewBets?: boolean;
   newBetIds?: Set<number>;
   pinnedMultipliers?: number[];
+  focusedMultiplier?: number | null;
+  onMultiplierFocus?: (multiplier: number) => void;
+  isAnalysisMode?: boolean;
 }) => {
   const {
     showBookmarks = false,
     showDistanceColumn = false,
     onBookmark,
     pinnedMultipliers = [],
+    focusedMultiplier = null,
+    onMultiplierFocus,
+    isAnalysisMode = false,
   } = options;
 
   const columns = [
@@ -199,11 +205,25 @@ export const createColumns = (options: {
         cell: ({ row }) => {
           const bet = row.original;
           const multiplier = bet.round_result ?? bet.payout_multiplier ?? 0;
+          const isFocused =
+            focusedMultiplier !== null &&
+            Math.abs(multiplier - focusedMultiplier) < 0.01;
 
           return (
             <Badge
               variant={getMultiplierBadgeVariant(multiplier)}
-              className="font-mono text-xs"
+              className={cn(
+                "font-mono text-xs",
+                isAnalysisMode &&
+                  onMultiplierFocus &&
+                  "cursor-pointer hover:ring-2 hover:ring-primary/20",
+                isFocused && "ring-2 ring-primary/40 bg-primary/10"
+              )}
+              onClick={
+                isAnalysisMode && onMultiplierFocus
+                  ? () => onMultiplierFocus(multiplier)
+                  : undefined
+              }
             >
               {formatMultiplier(multiplier)}
             </Badge>
