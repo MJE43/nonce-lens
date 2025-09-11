@@ -559,7 +559,7 @@ const LiveStreamDetail = () => {
               </div>
             ) : (
               <LiveBetTable
-                key={`bets-${bets.length}-${bets[0]?.id || "empty"}`}
+                key={`bets-table-${id}`}
                 bets={bets}
                 isLoading={betsLoading}
                 showDistanceColumn={true}

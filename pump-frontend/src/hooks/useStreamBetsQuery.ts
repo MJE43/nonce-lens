@@ -40,7 +40,12 @@ export function useStreamBetsQuery(
 
   // Merge default filters
   const mergedFilters: StreamBetsFilters = useMemo(
-    () => ({ order: "id_desc", limit: 1000, ...(filters ?? {}) }),
+    () => ({
+      order: "id_desc",
+      limit: 1000,
+      include_distance: true,
+      ...(filters ?? {}),
+    }),
     [filters]
   );
 
@@ -85,7 +90,7 @@ export function useStreamBetsQuery(
 
     try {
       const lastId = Math.max(...allBets.map((bet) => bet.id));
-      const response = await liveStreamsApi.tail(streamId, lastId);
+      const response = await liveStreamsApi.tail(streamId, lastId, true);
 
       if (response.data.bets.length > 0) {
         // Add new bets to the beginning of the first page
