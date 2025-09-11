@@ -221,7 +221,8 @@ eggs/
 .eggs/
 # Python lib directories (not frontend lib)
 backend/lib/
-lib/
+# Only ignore lib/ at root level, not in subdirectories
+/lib/
 lib64/
 parts/
 sdist/

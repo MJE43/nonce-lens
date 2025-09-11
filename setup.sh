@@ -1,20 +1,18 @@
 #!/bin/bash
 set -e
 
+echo "Setting up Nonce Lens project..."
+
 # --- Setup Python API ---
-cd backend
+./setup_python.sh
 
-# Create virtual environment if it doesn't exist
-if [ ! -d ".venv" ]; then
-  python3 -m venv .venv
-fi
-
-# Activate virtualenv and install dependencies
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-deactivate
 
 # --- Setup Frontend ---
-cd ../pump-frontend
+echo "Setting up frontend..."
+cd frontend
+echo "Installing npm dependencies..."
 npm install
+
+echo "Setup complete! 🎉"
+echo "To start the backend: cd backend && source .venv/bin/activate && python start_server.py"
+echo "To start the frontend: cd frontend && npm start"
