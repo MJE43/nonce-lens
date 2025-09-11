@@ -2,7 +2,7 @@
 set -e
 
 # --- Setup Python API ---
-cd pump-api
+cd backend
 
 # Create virtual environment if it doesn't exist
 if [ ! -d ".venv" ]; then
