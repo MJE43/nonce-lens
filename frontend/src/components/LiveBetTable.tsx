@@ -99,44 +99,58 @@ function LiveBetTable({
   // Calculate if pinned multipliers filter should be shown
   const shouldShowPinnedFilter = pinnedMultipliers.length > 0;
 
-  // Client-side distance calculation - properly calculate gaps for each multiplier target
+  // Snap floats to 2dp so 400.02 and 400.020000... land in the same bucket
+  const normalizeMultiplier = (m: number | null | undefined) =>
+    m == null || Number.isNaN(m) ? null : Math.round(m * 100) / 100;
+
+  // Calculate distances using "previous >= this row's multiplier" logic
+  const useDistancesAtLeastMultiplier = useMemo(() => {
+    if (!bets || !shouldShowDistance) return new Map<number, number | null>();
+
+    // Sort a copy by nonce ASC (chronological)
+    const asc = [...bets].sort((a, b) => a.nonce - b.nonce);
+
+    // Keep track of all hits in chronological order
+    const allHits: Array<{ m: number; nonce: number }> = [];
+    const distanceById = new Map<number, number | null>();
+
+    for (const b of asc) {
+      const m =
+        normalizeMultiplier(b.round_result ?? b.payout_multiplier) ?? null;
+      if (m == null) {
+        distanceById.set(b.id, null);
+        continue;
+      }
+
+      // Find the most recent hit with multiplier >= m
+      let prevNonce: number | null = null;
+      for (let i = allHits.length - 1; i >= 0; i--) {
+        const hit = allHits[i];
+        if (hit && hit.m >= m) {
+          prevNonce = hit.nonce;
+          break;
+        }
+      }
+
+      const distance = prevNonce == null ? null : b.nonce - prevNonce;
+      distanceById.set(b.id, distance);
+
+      // Add this hit to the list
+      allHits.push({ m, nonce: b.nonce });
+    }
+
+    return distanceById;
+  }, [bets, shouldShowDistance]);
+
+  // Apply computed distances to bets
   const betsWithDistance = useMemo(() => {
     if (!bets || !shouldShowDistance) return bets;
 
-    // Keep original display order but calculate distances correctly
-    const lastNonceByMultiplier = new Map<number, number>();
-
-    // Process bets in nonce ascending order to calculate distances
-    const nonceSortedBets = [...bets].sort((a, b) => a.nonce - b.nonce);
-    const distanceMap = new Map<number, number | null>();
-
-    nonceSortedBets.forEach((bet) => {
-      const multiplier = bet.round_result ?? bet.payout_multiplier;
-
-      // Use server-provided distance if available
-      if (
-        bet.distance_prev_opt !== undefined &&
-        bet.distance_prev_opt !== null
-      ) {
-        distanceMap.set(bet.id, bet.distance_prev_opt);
-        lastNonceByMultiplier.set(multiplier, bet.nonce);
-        return;
-      }
-
-      // Calculate client-side distance - gap between this nonce and previous hit of same multiplier
-      const lastNonce = lastNonceByMultiplier.get(multiplier);
-      const distance = lastNonce ? bet.nonce - lastNonce : null;
-
-      distanceMap.set(bet.id, distance);
-      lastNonceByMultiplier.set(multiplier, bet.nonce);
-    });
-
-    // Apply calculated distances to original bet order
     return bets.map((bet) => ({
       ...bet,
-      distance_prev_opt: distanceMap.get(bet.id) ?? bet.distance_prev_opt,
+      distance_prev_opt: useDistancesAtLeastMultiplier.get(bet.id) ?? null,
     }));
-  }, [bets, shouldShowDistance]);
+  }, [bets, shouldShowDistance, useDistancesAtLeastMultiplier]);
 
   // Handle bookmark functionality
   const handleBookmark = useCallback(
@@ -183,6 +197,15 @@ function LiveBetTable({
     // Disable global filtering to focus on column-specific filters
     enableGlobalFilter: false,
   });
+
+  // Reset filters when new bets arrive (preserves scroll/column state)
+  const prevCountRef = useRef<number>(bets.length);
+  useEffect(() => {
+    if (bets.length > prevCountRef.current) {
+      table.resetColumnFilters();
+    }
+    prevCountRef.current = bets.length;
+  }, [bets.length, table]);
 
   const tableRef = useRef<HTMLDivElement>(null);
 

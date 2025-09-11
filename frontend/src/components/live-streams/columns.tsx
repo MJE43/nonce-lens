@@ -260,7 +260,7 @@ export const createColumns = (options: {
                 </span>
               );
             },
-            enableSorting: true,
+            enableSorting: false, // distance is derived from current ordering, keep server/order stable
           }),
         ]
       : []),
