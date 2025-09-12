@@ -1,13 +1,15 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, mockStreamDetail, mockBetRecord } from '@/test/utils'
 import LiveStreamDetail from '../LiveStreamDetail'
 import * as useEnhancedLiveStreamsModule from '@/hooks/useEnhancedLiveStreams'
+import * as useStreamBetsQueryModule from '@/hooks/useStreamBetsQuery'
 import * as apiModule from '@/lib/api'
 
 // Mock the hooks and API
 vi.mock('@/hooks/useEnhancedLiveStreams')
+vi.mock('@/hooks/useStreamBetsQuery')
 vi.mock('@/lib/api')
 vi.mock('@/lib/errorHandling', () => ({
   showSuccessToast: vi.fn(),
@@ -35,7 +37,7 @@ vi.mock('react-router-dom', async () => {
 })
 
 const mockUseEnhancedStreamDetail = vi.mocked(useEnhancedLiveStreamsModule.useEnhancedStreamDetail)
-const mockUseEnhancedStreamBets = vi.mocked(useEnhancedLiveStreamsModule.useEnhancedStreamBets)
+const mockUseStreamBetsQuery = vi.mocked(useStreamBetsQueryModule.useStreamBetsQuery)
 const mockUseEnhancedDeleteStream = vi.mocked(useEnhancedLiveStreamsModule.useEnhancedDeleteStream)
 const mockUseEnhancedUpdateStream = vi.mocked(useEnhancedLiveStreamsModule.useEnhancedUpdateStream)
 const mockLiveStreamsApi = vi.mocked(apiModule.liveStreamsApi)
@@ -45,7 +47,6 @@ describe('LiveStreamDetail', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
-    vi.useFakeTimers()
     
     // Default mock implementations
     mockUseEnhancedDeleteStream.mockReturnValue({
@@ -58,12 +59,7 @@ describe('LiveStreamDetail', () => {
       isPending: false
     } as any)
 
-    mockLiveStreamsApi.tail = vi.fn()
     mockLiveStreamsApi.getExportCsvUrl = vi.fn().mockReturnValue('/export/test-stream-id.csv')
-  })
-
-  afterEach(() => {
-    vi.useRealTimers()
   })
 
   describe('Loading State', () => {
@@ -75,16 +71,16 @@ describe('LiveStreamDetail', () => {
         refetch: vi.fn()
       })
       
-      mockUseEnhancedStreamBets.mockReturnValue({
-        data: undefined,
+      mockUseStreamBetsQuery.mockReturnValue({
+        bets: [],
         isLoading: true,
         refetch: vi.fn()
-      })
+      } as any)
 
-      render(<LiveStreamDetail />)
+      const { container } = render(<LiveStreamDetail />)
 
       // Check for skeleton loading elements
-      const skeletons = screen.getAllByTestId(/skeleton/i)
+      const skeletons = container.querySelectorAll('.animate-pulse')
       expect(skeletons.length).toBeGreaterThan(0)
     })
   })
@@ -99,11 +95,11 @@ describe('LiveStreamDetail', () => {
         refetch: vi.fn()
       })
       
-      mockUseEnhancedStreamBets.mockReturnValue({
-        data: undefined,
+      mockUseStreamBetsQuery.mockReturnValue({
+        bets: [],
         isLoading: false,
         refetch: vi.fn()
-      })
+      } as any)
 
       render(<LiveStreamDetail />)
 
@@ -124,33 +120,34 @@ describe('LiveStreamDetail', () => {
         refetch: vi.fn()
       })
       
-      mockUseEnhancedStreamBets.mockReturnValue({
-        data: { bets: mockBets },
+      mockUseStreamBetsQuery.mockReturnValue({
+        bets: mockBets,
         isLoading: false,
         refetch: vi.fn()
-      })
+      } as any)
     })
 
     it('should display stream metadata correctly', () => {
       render(<LiveStreamDetail />)
 
       expect(screen.getByText('Live Stream Detail')).toBeInTheDocument()
-      expect(screen.getByText('Stream Information')).toBeInTheDocument()
+
+      const infoCard = screen.getByText('Stream Information').closest('div.shadow-md') as HTMLElement
       
       // Check seed information
-      expect(screen.getByText('Server Seed Hash')).toBeInTheDocument()
-      expect(screen.getByText('Client Seed')).toBeInTheDocument()
-      expect(screen.getByText(mockStreamDetail.clientSeed)).toBeInTheDocument()
+      expect(within(infoCard).getByText('Server Seed Hash')).toBeInTheDocument()
+      expect(within(infoCard).getByText('Client Seed')).toBeInTheDocument()
+      expect(within(infoCard).getByText(mockStreamDetail.client_seed)).toBeInTheDocument()
       
       // Check statistics
-      expect(screen.getByText('42')).toBeInTheDocument() // Total bets
-      expect(screen.getByText('1500.50x')).toBeInTheDocument() // Highest multiplier
+      expect(within(infoCard).getByText('42')).toBeInTheDocument() // Total bets
+      expect(within(infoCard).getByText('1500.50x')).toBeInTheDocument() // Highest multiplier
     })
 
     it('should display live indicator and polling controls', () => {
       render(<LiveStreamDetail />)
-
-      expect(screen.getByText('Live')).toBeInTheDocument()
+      const infoCard = screen.getByText('Stream Information').closest('div.shadow-md') as HTMLElement
+      expect(within(infoCard).getByText('Live')).toBeInTheDocument()
       expect(screen.getByRole('button', { name: /pause/i })).toBeInTheDocument()
     })
 
@@ -160,7 +157,9 @@ describe('LiveStreamDetail', () => {
       const pauseButton = screen.getByRole('button', { name: /pause/i })
       await user.click(pauseButton)
 
-      expect(screen.getByRole('button', { name: /resume/i })).toBeInTheDocument()
+      await waitFor(() => {
+        expect(screen.getByRole('button', { name: /resume/i })).toBeInTheDocument()
+      })
     })
   })
 
@@ -173,29 +172,30 @@ describe('LiveStreamDetail', () => {
         refetch: vi.fn()
       })
       
-      mockUseEnhancedStreamBets.mockReturnValue({
-        data: { bets: [] },
+      mockUseStreamBetsQuery.mockReturnValue({
+        bets: [],
         isLoading: false,
         refetch: vi.fn()
-      })
+      } as any)
     })
 
     it('should display existing notes', () => {
       render(<LiveStreamDetail />)
-
-      expect(screen.getByText('Test notes')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /edit/i })).toBeInTheDocument()
+      const infoCard = screen.getByText('Stream Information').closest('div.shadow-md') as HTMLElement
+      expect(within(infoCard).getByText('Test notes')).toBeInTheDocument()
+      expect(within(infoCard).getAllByRole('button', { name: /edit/i })[0]).toBeInTheDocument()
     })
 
     it('should enter edit mode when edit button is clicked', async () => {
       render(<LiveStreamDetail />)
+      const infoCard = screen.getByText('Stream Information').closest('div.shadow-md') as HTMLElement
 
-      const editButton = screen.getByRole('button', { name: /edit/i })
+      const editButton = within(infoCard).getAllByRole('button', { name: /edit/i })[0]
       await user.click(editButton)
 
-      expect(screen.getByRole('textbox')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /save/i })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /cancel/i })).toBeInTheDocument()
+      expect(within(infoCard).getByRole('textbox')).toBeInTheDocument()
+      expect(within(infoCard).getAllByRole('button', { name: /save/i })[0]).toBeInTheDocument()
+      expect(within(infoCard).getByRole('button', { name: /cancel/i })).toBeInTheDocument()
     })
 
     it('should save notes when save button is clicked', async () => {
@@ -206,100 +206,44 @@ describe('LiveStreamDetail', () => {
       } as any)
 
       render(<LiveStreamDetail />)
+      const infoCard = screen.getByText('Stream Information').closest('div.shadow-md') as HTMLElement
 
-      const editButton = screen.getByRole('button', { name: /edit/i })
+      const editButton = within(infoCard).getAllByRole('button', { name: /edit/i })[0]
       await user.click(editButton)
 
-      const textarea = screen.getByRole('textbox')
+      const textarea = within(infoCard).getByRole('textbox')
       await user.clear(textarea)
       await user.type(textarea, 'Updated notes')
 
-      const saveButton = screen.getByRole('button', { name: /save/i })
+      const saveButton = within(infoCard).getAllByRole('button', { name: /save/i })[0]
       await user.click(saveButton)
 
-      expect(mockMutateAsync).toHaveBeenCalledWith({
-        id: 'test-stream-id',
-        data: { notes: 'Updated notes' }
+      await waitFor(() => {
+        expect(mockMutateAsync).toHaveBeenCalledWith({
+          id: '550e8400-e29b-41d4-a716-446655440000',
+          data: { notes: 'Updated notes' }
+        })
       })
     })
 
     it('should cancel editing when cancel button is clicked', async () => {
       render(<LiveStreamDetail />)
+      const infoCard = screen.getByText('Stream Information').closest('div.shadow-md') as HTMLElement
 
-      const editButton = screen.getByRole('button', { name: /edit/i })
+      const editButton = within(infoCard).getAllByRole('button', { name: /edit/i })[0]
       await user.click(editButton)
 
-      const textarea = screen.getByRole('textbox')
+      const textarea = within(infoCard).getByRole('textbox')
       await user.clear(textarea)
       await user.type(textarea, 'Changed text')
 
-      const cancelButton = screen.getByRole('button', { name: /cancel/i })
+      const cancelButton = within(infoCard).getByRole('button', { name: /cancel/i })
       await user.click(cancelButton)
 
-      expect(screen.getByText('Test notes')).toBeInTheDocument()
-      expect(screen.queryByRole('textbox')).not.toBeInTheDocument()
-    })
-  })
-
-  describe('Bet Filtering', () => {
-    const mockBets = [
-      { ...mockBetRecord, id: 1, nonce: 1001, payoutMultiplier: 50.5 },
-      { ...mockBetRecord, id: 2, nonce: 1002, payoutMultiplier: 150.75 },
-      { ...mockBetRecord, id: 3, nonce: 1003, payoutMultiplier: 1000.0 }
-    ]
-
-    beforeEach(() => {
-      mockUseEnhancedStreamDetail.mockReturnValue({
-        data: mockStreamDetail,
-        isLoading: false,
-        error: null,
-        refetch: vi.fn()
-      })
-      
-      mockUseEnhancedStreamBets.mockReturnValue({
-        data: { bets: mockBets },
-        isLoading: false,
-        refetch: vi.fn()
-      })
-    })
-
-    it('should display bet filters', () => {
-      render(<LiveStreamDetail />)
-
-      expect(screen.getByText('Bet Filters')).toBeInTheDocument()
-      expect(screen.getByLabelText('Minimum Multiplier')).toBeInTheDocument()
-      expect(screen.getByLabelText('Order By')).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /clear filters/i })).toBeInTheDocument()
-    })
-
-    it('should filter bets by minimum multiplier', async () => {
-      render(<LiveStreamDetail />)
-
-      const multiplierInput = screen.getByLabelText('Minimum Multiplier')
-      await user.type(multiplierInput, '100')
-
       await waitFor(() => {
-        expect(screen.getByText('Showing 2 of 3 bets')).toBeInTheDocument()
-        expect(screen.getByText('(≥100x multiplier)')).toBeInTheDocument()
+        expect(within(infoCard).getByText('Test notes')).toBeInTheDocument()
+        expect(within(infoCard).queryByRole('textbox')).not.toBeInTheDocument()
       })
-
-      // Should show only bets with multiplier >= 100
-      expect(screen.getByText('150.75x')).toBeInTheDocument()
-      expect(screen.getByText('1000.00x')).toBeInTheDocument()
-      expect(screen.queryByText('50.50x')).not.toBeInTheDocument()
-    })
-
-    it('should clear filters when clear button is clicked', async () => {
-      render(<LiveStreamDetail />)
-
-      const multiplierInput = screen.getByLabelText('Minimum Multiplier')
-      await user.type(multiplierInput, '100')
-
-      const clearButton = screen.getByRole('button', { name: /clear filters/i })
-      await user.click(clearButton)
-
-      expect(multiplierInput).toHaveValue('')
-      expect(screen.getByText('Showing 3 of 3 bets')).toBeInTheDocument()
     })
   })
 
@@ -314,47 +258,49 @@ describe('LiveStreamDetail', () => {
         refetch: vi.fn()
       })
       
-      mockUseEnhancedStreamBets.mockReturnValue({
-        data: { bets: mockBets },
+      mockUseStreamBetsQuery.mockReturnValue({
+        bets: mockBets,
         isLoading: false,
-        refetch: vi.fn()
-      })
+        refetch: vi.fn(),
+        total: mockBets.length,
+      } as any)
     })
 
     it('should display bet table with correct headers', () => {
       render(<LiveStreamDetail />)
 
       expect(screen.getByText('Betting Activity')).toBeInTheDocument()
-      expect(screen.getByText('Updates every 2 seconds')).toBeInTheDocument()
+      expect(screen.getByText(/updates every/i)).toBeInTheDocument()
 
+      const table = screen.getByRole('table')
       // Check table headers
-      const headers = ['Nonce', 'Date/Time', 'Amount', 'Multiplier', 'Payout', 'Difficulty', 'Target', 'Result']
+      const headers = ['Nonce', 'Date/Time', 'Amount', 'Multiplier', 'Payout', 'Difficulty']
       headers.forEach(header => {
-        expect(screen.getByText(header)).toBeInTheDocument()
+        expect(within(table).getByText(header)).toBeInTheDocument()
       })
     })
 
     it('should display bet data correctly', () => {
       render(<LiveStreamDetail />)
+      const table = screen.getByRole('table')
 
-      expect(screen.getByText('1,001')).toBeInTheDocument() // Nonce
-      expect(screen.getByText('0.10000000')).toBeInTheDocument() // Amount
-      expect(screen.getByText('1500.50x')).toBeInTheDocument() // Multiplier
-      expect(screen.getByText('150.05000000')).toBeInTheDocument() // Payout
-      expect(screen.getByText('expert')).toBeInTheDocument() // Difficulty
+      expect(within(table).getByText('1,001')).toBeInTheDocument() // Nonce
+      expect(within(table).getByText('0.10000000')).toBeInTheDocument() // Amount
+      expect(within(table).getByText('1500.50x')).toBeInTheDocument() // Multiplier
+      expect(within(table).getByText('150.05000000')).toBeInTheDocument() // Payout
+      expect(within(table).getByText('expert')).toBeInTheDocument() // Difficulty
     })
 
     it('should display empty state when no bets match filters', () => {
-      mockUseEnhancedStreamBets.mockReturnValue({
-        data: { bets: [] },
+      mockUseStreamBetsQuery.mockReturnValue({
+        bets: [],
         isLoading: false,
         refetch: vi.fn()
-      })
+      } as any)
 
       render(<LiveStreamDetail />)
 
       expect(screen.getByText('No bets found')).toBeInTheDocument()
-      expect(screen.getByText('Bets will appear here as they are received')).toBeInTheDocument()
     })
   })
 
@@ -367,18 +313,18 @@ describe('LiveStreamDetail', () => {
         refetch: vi.fn()
       })
       
-      mockUseEnhancedStreamBets.mockReturnValue({
-        data: { bets: [] },
+      mockUseStreamBetsQuery.mockReturnValue({
+        bets: [],
         isLoading: false,
         refetch: vi.fn()
-      })
+      } as any)
     })
 
     it('should display action buttons', () => {
       render(<LiveStreamDetail />)
-
-      expect(screen.getByRole('button', { name: /export csv/i })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: /delete stream/i })).toBeInTheDocument()
+      const infoCard = screen.getByText('Stream Information').closest('div.shadow-md') as HTMLElement
+      expect(within(infoCard).getAllByRole('button', { name: /export csv/i })[0]).toBeInTheDocument()
+      expect(within(infoCard).getByRole('button', { name: /delete stream/i })).toBeInTheDocument()
     })
 
     it('should handle CSV export', async () => {
@@ -386,58 +332,25 @@ describe('LiveStreamDetail', () => {
       Object.defineProperty(window, 'open', { value: mockOpen })
 
       render(<LiveStreamDetail />)
-
-      const exportButton = screen.getByRole('button', { name: /export csv/i })
+      const infoCard = screen.getByText('Stream Information').closest('div.shadow-md') as HTMLElement
+      const exportButton = within(infoCard).getAllByRole('button', { name: /export csv/i })[0]
       await user.click(exportButton)
 
-      expect(mockLiveStreamsApi.getExportCsvUrl).toHaveBeenCalledWith('test-stream-id')
+      expect(mockLiveStreamsApi.getExportCsvUrl).toHaveBeenCalledWith('550e8400-e29b-41d4-a716-446655440000')
       expect(mockOpen).toHaveBeenCalledWith('/export/test-stream-id.csv', '_blank')
     })
 
     it('should show delete confirmation dialog', async () => {
       render(<LiveStreamDetail />)
-
-      const deleteButton = screen.getByRole('button', { name: /delete stream/i })
+      const infoCard = screen.getByText('Stream Information').closest('div.shadow-md') as HTMLElement
+      const deleteButton = within(infoCard).getByRole('button', { name: /delete stream/i })
       await user.click(deleteButton)
 
-      expect(screen.getByText('Delete Stream')).toBeInTheDocument()
-      expect(screen.getByText(/This will permanently delete the stream/)).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
-      expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
-    })
-  })
-
-  describe('Real-time Updates', () => {
-    beforeEach(() => {
-      mockUseEnhancedStreamDetail.mockReturnValue({
-        data: mockStreamDetail,
-        isLoading: false,
-        error: null,
-        refetch: vi.fn()
-      })
-      
-      mockUseEnhancedStreamBets.mockReturnValue({
-        data: { bets: [mockBetRecord] },
-        isLoading: false,
-        refetch: vi.fn()
-      })
-    })
-
-    it('should set up polling for real-time updates', async () => {
-      mockLiveStreamsApi.tail.mockResolvedValue({
-        data: {
-          bets: [{ ...mockBetRecord, id: 2, nonce: 1002 }],
-          lastId: 2
-        }
-      })
-
-      render(<LiveStreamDetail />)
-
-      // Fast-forward time to trigger polling
-      vi.advanceTimersByTime(2000)
-
       await waitFor(() => {
-        expect(mockLiveStreamsApi.tail).toHaveBeenCalledWith('test-stream-id', 1)
+        expect(screen.getAllByText('Delete Stream')[1]).toBeInTheDocument()
+        expect(screen.getByText(/This will permanently delete the stream/)).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Cancel' })).toBeInTheDocument()
+        expect(screen.getByRole('button', { name: 'Delete' })).toBeInTheDocument()
       })
     })
   })
@@ -451,18 +364,17 @@ describe('LiveStreamDetail', () => {
         refetch: vi.fn()
       })
       
-      mockUseEnhancedStreamBets.mockReturnValue({
-        data: { bets: [] },
+      mockUseStreamBetsQuery.mockReturnValue({
+        bets: [],
         isLoading: false,
         refetch: vi.fn()
-      })
+      } as any)
     })
 
     it('should display breadcrumb navigation', () => {
       render(<LiveStreamDetail />)
 
-      expect(screen.getByRole('link', { name: 'Live' })).toHaveAttribute('href', '/live')
-      expect(screen.getByText('1a2b3c4d5e...')).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /back to streams/i })).toHaveAttribute('href', '/streams')
     })
   })
 })

@@ -34,17 +34,18 @@ export { customRender as render }
 // Mock data for tests
 export const mockStreamSummary = {
   id: 'test-stream-1',
-  serverSeedHashed: '1a2b3c4d5e6f7890abcdef1234567890',
-  clientSeed: 'test-client-seed',
-  createdAt: '2025-01-01T00:00:00Z',
-  lastSeenAt: '2025-01-01T12:00:00Z',
-  totalBets: 42,
-  highestMultiplier: 1500.5,
+  server_seed_hashed: '1a2b3c4d5e6f7890abcdef1234567890',
+  client_seed: 'test-client-seed',
+  created_at: '2025-01-01T00:00:00Z',
+  last_seen_at: '2025-01-01T12:00:00Z',
+  total_bets: 42,
+  highest_multiplier: 1500.5,
   notes: 'Test stream notes'
 }
 
 export const mockStreamDetail = {
   ...mockStreamSummary,
+  server_seed_hashed: '1a2b3c4d5e6f7890abcdef1234567890',
   recentActivity: [
     {
       id: 1,
