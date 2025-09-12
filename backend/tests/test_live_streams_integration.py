@@ -9,7 +9,9 @@ import asyncio
 import json
 import pytest
 from datetime import datetime, timezone
-from uuid import UUID
+from uuid import UUID, uuid4
+import os
+import time
 from httpx import AsyncClient
 from sqlmodel import SQLModel, select
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
@@ -21,19 +23,20 @@ from app.core.config import get_settings
 from app.models.live_streams import LiveStream, LiveBet
 
 
-# Test database setup
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
-
-
 @pytest.fixture
 async def test_db():
     """Create a test database for each test."""
+    db_name = f"./test_{uuid4()}.db"
+    TEST_DATABASE_URL = f"sqlite+aiosqlite:///{db_name}"
     engine = create_async_engine(TEST_DATABASE_URL, echo=False)
 
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
 
-    return engine
+    yield engine
+
+    # Clean up the database file
+    os.remove(db_name)
 
 
 @pytest.fixture
@@ -50,24 +53,16 @@ async def client(test_db, monkeypatch):
 
     # Override the dependency
     app.dependency_overrides[get_session] = get_test_session
-
-    # Mock rate limiter dependency to always allow requests
-    def mock_rate_limit_dependency():
-        async def _rate_limit():
-            return None  # No rate limiting
-
-        return _rate_limit
-
-    monkeypatch.setattr(
-        "app.routers.live_streams.get_rate_limit_dependency", mock_rate_limit_dependency
-    )
+    get_settings().testing = True
 
     try:
-        async with AsyncClient(app=app, base_url="http://test") as ac:
-            yield ac
+        async with app.router.lifespan_context(app):
+            async with AsyncClient(app=app, base_url="http://test") as ac:
+                yield ac
     finally:
         # Clean up
         app.dependency_overrides.clear()
+        get_settings().testing = False
 
 
 @pytest.fixture
@@ -231,7 +226,7 @@ class TestIngestionEndpoint:
                 ingest_rate_limit=1000000,
             )
 
-        monkeypatch.setattr("app.routers.live_streams.get_settings", mock_get_settings)
+        monkeypatch.setattr("app.routers.streams.get_settings", mock_get_settings)
 
         # Request without token should fail
         response = await client.post("/live/ingest", json=sample_bet_payload)
@@ -278,38 +273,21 @@ class TestIngestionEndpoint:
 
     async def test_concurrent_duplicate_requests(self, client: AsyncClient, sample_bet_payload):
         """Test concurrent duplicate requests for idempotency."""
-        # Disable rate limiting for this test
-        from app.core.config import Settings
-        from app.routers.live_streams import get_settings as _orig_get_settings
-
-        def mock_get_settings():
-            s = _orig_get_settings()
-            return Settings(
-                database_url="sqlite+aiosqlite:///:memory:",
-                api_cors_origins=s.api_cors_origins,
-                max_nonces=s.max_nonces,
-                ingest_token=None,
-                api_host=s.api_host,
-                api_port=s.api_port,
-                ingest_rate_limit=1000000,
-            )
-
-        import app.routers.live_streams as live_mod
-
-        live_mod.get_settings = mock_get_settings
         # Send same payload multiple times concurrently
         tasks = [client.post("/live/ingest", json=sample_bet_payload) for _ in range(3)]
         responses = await asyncio.gather(*tasks)
 
+        for r in responses:
+            print(r.json())
         # One should be accepted, others should be duplicates
-        accepted_count = sum(1 for r in responses if r.json()["accepted"])
-        duplicate_count = sum(1 for r in responses if not r.json()["accepted"])
+        accepted_count = sum(1 for r in responses if "accepted" in r.json() and r.json()["accepted"])
+        duplicate_count = sum(1 for r in responses if "accepted" in r.json() and not r.json()["accepted"])
 
         assert accepted_count == 1
         assert duplicate_count == 2
 
         # All should have same stream ID
-        stream_ids = [response.json()["streamId"] for response in responses]
+        stream_ids = [response.json()["streamId"] for response in responses if "streamId" in response.json()]
         assert len(set(stream_ids)) == 1
 
 
@@ -604,25 +582,6 @@ class TestMetricsEndpoint:
 
     async def test_metrics_endpoint_with_pinned_multipliers(self, client: AsyncClient):
         """Test metrics endpoint with pinned multipliers parameter."""
-        # Disable rate limiting for this test to allow multiple ingests
-        from app.core.config import Settings
-        from app.routers.live_streams import get_settings as _orig_get_settings
-
-        def mock_get_settings():
-            s = _orig_get_settings()
-            return Settings(
-                database_url="sqlite+aiosqlite:///:memory:",
-                api_cors_origins=s.api_cors_origins,
-                max_nonces=s.max_nonces,
-                ingest_token=None,
-                api_host=s.api_host,
-                api_port=s.api_port,
-                ingest_rate_limit=1000000,
-            )
-
-        import app.routers.live_streams as live_mod
-
-        live_mod.get_settings = mock_get_settings
         # Create multiple bets with different multipliers
         base_payload = {
             "dateTime": "2025-09-08T20:31:11.123Z",
@@ -647,6 +606,7 @@ class TestMetricsEndpoint:
             }
 
             ingest_response = await client.post("/live/ingest", json=payload)
+            time.sleep(2)
             assert ingest_response.status_code == 200
             if stream_id is None:
                 stream_id = ingest_response.json()["streamId"]
