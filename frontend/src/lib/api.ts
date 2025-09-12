@@ -532,6 +532,72 @@ export interface StreamBetsFilters {
   include_distance?: boolean;
 }
 
+// Hit-Centric Analysis API Types
+export interface HitRecord {
+  nonce: number;
+  bucket: number;
+  distance_prev: number | null;
+  id: number;
+  date_time: string | null;
+}
+
+export interface BucketStats {
+  count: number;
+  median: number | null;
+  mean: number | null;
+  min: number | null;
+  max: number | null;
+  method: 'exact' | 'approximate';
+}
+
+export interface RangeStats {
+  range: string;
+  stats: BucketStats;
+}
+
+export interface HitQueryResponse {
+  hits: HitRecord[];
+  prev_nonce_before_range: number | null;
+  total_in_range: number;
+  has_more: boolean;
+}
+
+export interface HitStatsResponse {
+  stats_by_range: RangeStats[];
+}
+
+export interface GlobalHitStatsResponse {
+  global_stats: BucketStats;
+  theoretical_eta: number | null;
+  confidence_interval: [number, number] | null;
+}
+
+export interface BatchHitQueryResponse {
+  hits_by_bucket: Record<string, HitRecord[]>;
+  stats_by_bucket: Record<string, BucketStats>;
+}
+
+export interface HitQueryFilters {
+  bucket: number;
+  after_nonce?: number;
+  before_nonce?: number;
+  limit?: number;
+  order?: 'nonce_asc' | 'nonce_desc';
+  include_distance?: boolean;
+}
+
+export interface HitStatsFilters {
+  bucket: number;
+  ranges?: string;
+}
+
+export interface BatchHitFilters {
+  buckets: string; // comma-separated bucket values
+  after_nonce?: number;
+  before_nonce?: number;
+  limit_per_bucket?: number;
+}
+
 // Live Streams API
 export const liveStreamsApi = {
   // List all streams
@@ -563,4 +629,17 @@ export const liveStreamsApi = {
 
   // Export CSV
   getExportCsvUrl: (id: string) => `${API_BASE}/live/streams/${id}/export.csv`,
+
+  // Hit-centric analysis endpoints
+  getHits: (id: string, params: HitQueryFilters) =>
+    apiClient.get<HitQueryResponse>(`/live/streams/${id}/hits`, { params }),
+
+  getHitStats: (id: string, params: HitStatsFilters) =>
+    apiClient.get<HitStatsResponse>(`/live/streams/${id}/hits/stats`, { params }),
+
+  getGlobalHitStats: (id: string, params: { bucket: number }) =>
+    apiClient.get<GlobalHitStatsResponse>(`/live/streams/${id}/hits/stats/global`, { params }),
+
+  getBatchHits: (id: string, params: BatchHitFilters) =>
+    apiClient.get<BatchHitQueryResponse>(`/live/streams/${id}/hits/batch`, { params }),
 };

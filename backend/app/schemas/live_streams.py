@@ -228,3 +228,61 @@ class StreamMetrics(BaseModel):
     multiplier_stats: List[MultiplierMetrics] = Field(default_factory=list, description="Per-multiplier statistics")
     density_buckets: dict[str, int] = Field(default_factory=dict, description="Density buckets (bucket_id -> count)")
     top_peaks: List[PeakRecord] = Field(default_factory=list, description="Top N highest multipliers")
+
+
+class HitRecord(BaseModel):
+    """Individual hit record for hit-centric analysis."""
+
+    nonce: int = Field(..., description="Bet nonce")
+    bucket: float = Field(..., description="Multiplier bucket (rounded to 2 decimal places)")
+    distance_prev: Optional[int] = Field(None, description="Distance to previous hit of same bucket")
+    id: int = Field(..., description="Database ID for reference")
+    date_time: Optional[datetime] = Field(None, description="Original bet datetime from Antebot")
+
+
+class HitQueryResponse(BaseModel):
+    """Response model for hit query endpoint."""
+
+    hits: List[HitRecord] = Field(..., description="List of hit records")
+    prev_nonce_before_range: Optional[int] = Field(None, description="Previous nonce before range for distance calculation")
+    total_in_range: int = Field(..., description="Total hits in the requested range")
+    has_more: bool = Field(..., description="Whether more hits are available beyond the limit")
+
+
+class BucketStats(BaseModel):
+    """Statistics for a specific bucket."""
+
+    count: int = Field(..., description="Number of hits")
+    median: Optional[float] = Field(None, description="Median distance between hits")
+    mean: Optional[float] = Field(None, description="Mean distance between hits")
+    min: Optional[int] = Field(None, description="Minimum distance between hits")
+    max: Optional[int] = Field(None, description="Maximum distance between hits")
+    method: str = Field(..., description="Calculation method: 'exact' or 'approximate'")
+
+
+class RangeStats(BaseModel):
+    """Statistics for a specific range."""
+
+    range: str = Field(..., description="Range identifier (e.g., '0-10000')")
+    stats: BucketStats = Field(..., description="Statistics for this range")
+
+
+class HitStatsResponse(BaseModel):
+    """Response model for hit statistics endpoint."""
+
+    stats_by_range: List[RangeStats] = Field(..., description="Statistics grouped by range")
+
+
+class GlobalHitStatsResponse(BaseModel):
+    """Response model for global hit statistics endpoint."""
+
+    global_stats: BucketStats = Field(..., description="Global statistics across all ranges")
+    theoretical_eta: Optional[float] = Field(None, description="Theoretical ETA based on probability")
+    confidence_interval: Optional[List[float]] = Field(None, description="Confidence interval for median estimate")
+
+
+class BatchHitQueryResponse(BaseModel):
+    """Response model for batch hit query endpoint."""
+
+    hits_by_bucket: dict[str, List[HitRecord]] = Field(..., description="Hits grouped by bucket")
+    stats_by_bucket: dict[str, BucketStats] = Field(..., description="Statistics grouped by bucket")

@@ -26,7 +26,7 @@ vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom')
   return {
     ...actual,
-    useParams: () => ({ id: 'test-stream-id' }),
+    useParams: () => ({ id: '550e8400-e29b-41d4-a716-446655440000' }),
     useNavigate: () => vi.fn(),
     Link: ({ children, to }: { children: React.ReactNode; to: string }) => (
       <a href={to}>{children}</a>

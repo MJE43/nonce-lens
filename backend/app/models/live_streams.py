@@ -5,7 +5,7 @@ from typing import Optional
 from uuid import UUID, uuid4
 
 from sqlmodel import SQLModel, Field, Index
-from sqlalchemy import ForeignKeyConstraint, CheckConstraint
+from sqlalchemy import ForeignKeyConstraint, CheckConstraint, Computed
 
 
 class LiveStream(SQLModel, table=True):
@@ -38,12 +38,21 @@ class LiveBet(SQLModel, table=True):
     difficulty: str = Field(nullable=False)
     round_target: Optional[float] = Field(default=None, nullable=True, gt=0)
     round_result: float = Field(nullable=False, ge=0)
+    # Generated column for consistent bucketing (rounded to 2 decimal places)
+    bucket_2dp: Optional[float] = Field(
+        default=None, 
+        sa_column_kwargs={"server_default": Computed("ROUND(round_result, 2)")},
+        nullable=True
+    )
 
     __table_args__ = (
         Index("idx_live_bets_stream_id", "stream_id", "id"),
         Index("idx_live_bets_stream_nonce", "stream_id", "nonce"),
         Index("idx_live_bets_stream_result", "stream_id", "round_result"),
         Index("idx_live_bets_unique_bet", "stream_id", "antebot_bet_id", unique=True),
+        # New indexes for hit-centric analysis
+        Index("idx_live_bets_hit_analysis", "stream_id", "bucket_2dp", "nonce"),
+        Index("idx_live_bets_nonce_range", "stream_id", "nonce", "bucket_2dp"),
         ForeignKeyConstraint(["stream_id"], ["live_streams.id"], ondelete="CASCADE"),
         CheckConstraint("nonce >= 1", name="ck_live_bets_nonce_ge_1"),
         CheckConstraint("amount >= 0", name="ck_live_bets_amount_ge_0"),
