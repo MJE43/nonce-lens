@@ -1,0 +1,886 @@
+---
+inclusion: fileMatch
+fileMatchPattern: ['app/**/*.py', 'src/**/*.ts', 'src/**/*.tsx', 'pump-api/**/*.py', 'pump-frontend/**/*.ts', 'pump-frontend/**/*.tsx']
+---
+# Error Handling & Logging Patterns
+
+## Backend Error Handling
+
+### Exception Hierarchy
+Define a clear exception hierarchy for the application:
+
+```python
+from typing import Optional, Dict, Any
+
+class PumpAnalyzerException(Exception):
+    """Base exception for all application-specific errors."""
+
+    def __init__(
+        self,
+        message: str,
+        code: Optional[str] = None,
+        details: Optional[Dict[str, Any]] = None
+    ):
+        self.message = message
+        self.code = code
+        self.details = details or {}
+        super().__init__(self.message)
+
+class ValidationError(PumpAnalyzerException):
+    """Raised when input validation fails."""
+    pass
+
+class BusinessLogicError(PumpAnalyzerException):
+    """Raised when business rules are violated."""
+    pass
+
+class ResourceNotFoundError(PumpAnalyzerException):
+    """Raised when a requested resource doesn't exist."""
+    pass
+
+class RateLimitExceededError(PumpAnalyzerException):
+    """Raised when rate limits are exceeded."""
+    pass
+
+class EngineError(PumpAnalyzerException):
+    """Raised when the Pump analysis engine encounters an error."""
+    pass
+
+class DatabaseError(PumpAnalyzerException):
+    """Raised when database operations fail."""
+    pass
+```
+
+### FastAPI Exception Handlers
+Create global exception handlers for consistent error responses:
+
+```python
+from fastapi import FastAPI, Request, HTTPException, status
+from fastapi.responses import JSONResponse
+import logging
+
+logger = logging.getLogger(__name__)
+
+app = FastAPI()
+
+@app.exception_handler(ValidationError)
+async def validation_error_handler(request: Request, exc: ValidationError):
+    """Handle validation errors with 422 status."""
+    logger.warning(f"Validation error: {exc.message}", extra={
+        "path": request.url.path,
+        "method": request.method,
+        "code": exc.code,
+        "details": exc.details
+    })
+
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "error": {
+                "type": "validation_error",
+                "message": exc.message,
+                "code": exc.code,
+                "details": exc.details
+            }
+        }
+    )
+
+@app.exception_handler(ResourceNotFoundError)
+async def not_found_error_handler(request: Request, exc: ResourceNotFoundError):
+    """Handle resource not found errors with 404 status."""
+    logger.info(f"Resource not found: {exc.message}", extra={
+        "path": request.url.path,
+        "method": request.method,
+        "code": exc.code
+    })
+
+    return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={
+            "error": {
+                "type": "not_found",
+                "message": exc.message,
+                "code": exc.code
+            }
+        }
+    )
+
+@app.exception_handler(RateLimitExceededError)
+async def rate_limit_error_handler(request: Request, exc: RateLimitExceededError):
+    """Handle rate limiting with 429 status."""
+    logger.warning(f"Rate limit exceeded: {exc.message}", extra={
+        "path": request.url.path,
+        "method": request.method,
+        "client_ip": request.client.host,
+        "details": exc.details
+    })
+
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={
+            "error": {
+                "type": "rate_limit_exceeded",
+                "message": exc.message,
+                "code": exc.code
+            }
+        },
+        headers={
+            "Retry-After": str(exc.details.get("retry_after", 60)),
+            "X-RateLimit-Limit": str(exc.details.get("limit", 100)),
+            "X-RateLimit-Reset": str(exc.details.get("reset_time", ""))
+        }
+    )
+
+@app.exception_handler(Exception)
+async def general_exception_handler(request: Request, exc: Exception):
+    """Catch-all handler for unexpected errors."""
+    logger.exception(f"Unhandled exception: {str(exc)}", extra={
+        "path": request.url.path,
+        "method": request.method,
+        "client_ip": request.client.host,
+        "exception_type": type(exc).__name__
+    })
+
+    # Don't expose internal error details in production
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "error": {
+                "type": "internal_error",
+                "message": "An internal error occurred",
+                "code": "INTERNAL_ERROR"
+            }
+        }
+    )
+```
+
+### Structured Error Handling in Routers
+Use consistent error handling patterns in route handlers:
+
+```python
+from sqlmodel import Session
+from fastapi import Depends, HTTPException, status
+import traceback
+
+async def get_stream_with_error_handling(
+    stream_id: UUID,
+    session: Session = Depends(get_session)
+) -> LiveStream:
+    """Get stream with comprehensive error handling."""
+    try:
+        # Validate UUID format
+        if not isinstance(stream_id, UUID):
+            raise ValidationError(
+                message="Invalid stream ID format",
+                code="INVALID_UUID",
+                details={"stream_id": str(stream_id)}
+            )
+
+        # Attempt to fetch from database
+        stmt = select(LiveStream).where(LiveStream.id == stream_id)
+        result = await session.exec(stmt)
+        stream = result.first()
+
+        if not stream:
+            raise ResourceNotFoundError(
+                message=f"Stream not found",
+                code="STREAM_NOT_FOUND",
+                details={"stream_id": str(stream_id)}
+            )
+
+        return stream
+
+    except ValidationError:
+        # Re-raise validation errors
+        raise
+    except ResourceNotFoundError:
+        # Re-raise not found errors
+        raise
+    except SQLAlchemyError as e:
+        # Handle database errors
+        logger.error(f"Database error fetching stream {stream_id}: {str(e)}")
+        raise DatabaseError(
+            message="Database error occurred",
+            code="DATABASE_ERROR",
+            details={"operation": "fetch_stream", "stream_id": str(stream_id)}
+        )
+    except Exception as e:
+        # Handle unexpected errors
+        logger.exception(f"Unexpected error fetching stream {stream_id}: {str(e)}")
+        raise PumpAnalyzerException(
+            message="Unexpected error occurred",
+            code="UNEXPECTED_ERROR",
+            details={"operation": "fetch_stream", "stream_id": str(stream_id)}
+        )
+
+@router.get("/{stream_id}", response_model=StreamDetail)
+async def get_stream_detail(
+    stream_id: UUID,
+    session: Session = Depends(get_session)
+):
+    """Get stream details with error handling."""
+    # The exception handlers will catch and format any errors appropriately
+    stream = await get_stream_with_error_handling(stream_id, session)
+
+    # Build response with additional data
+    try:
+        recent_bets = await get_recent_bets(session, stream_id, limit=10)
+
+        return StreamDetail(
+            **stream.dict(),
+            recent_bets=recent_bets
+        )
+    except Exception as e:
+        logger.warning(f"Failed to load recent bets for stream {stream_id}: {str(e)}")
+        # Return stream without recent bets rather than failing entirely
+        return StreamDetail(**stream.dict(), recent_bets=[])
+```
+
+## Engine Error Handling
+
+### Pump Engine Error Patterns
+Handle errors in the analysis engine gracefully:
+
+```python
+from typing import Tuple, Dict, List, Any
+import time
+import hashlib
+
+def scan_pump_with_error_handling(
+    server_seed: str,
+    client_seed: str,
+    start: int,
+    end: int,
+    difficulty: str,
+    targets: List[float]
+) -> Tuple[Dict[float, List[int]], Dict[str, Any]]:
+    """Scan pump with comprehensive error handling."""
+
+    start_time = time.time()
+
+    try:
+        # Validate inputs
+        if not server_seed or not client_seed:
+            raise ValidationError(
+                message="Server seed and client seed are required",
+                code="MISSING_SEEDS"
+            )
+
+        if start < 1 or end < start:
+            raise ValidationError(
+                message="Invalid nonce range",
+                code="INVALID_NONCE_RANGE",
+                details={"start": start, "end": end}
+            )
+
+        if difficulty not in ["easy", "medium", "hard", "expert"]:
+            raise ValidationError(
+                message="Invalid difficulty level",
+                code="INVALID_DIFFICULTY",
+                details={"difficulty": difficulty}
+            )
+
+        if not targets or any(t <= 1.0 for t in targets):
+            raise ValidationError(
+                message="All targets must be greater than 1.0",
+                code="INVALID_TARGETS",
+                details={"targets": targets}
+            )
+
+        # Check range size
+        range_size = end - start + 1
+        if range_size > 500000:  # MAX_NONCES
+            raise BusinessLogicError(
+                message="Nonce range exceeds maximum allowed",
+                code="RANGE_TOO_LARGE",
+                details={"range_size": range_size, "max_allowed": 500000}
+            )
+
+        # Perform the actual analysis
+        hits_by_target = {}
+        max_multiplier = 0.0
+        total_count = 0
+
+        for nonce in range(start, end + 1):
+            try:
+                result = verify_pump_single(server_seed, client_seed, nonce, difficulty)
+                multiplier = result["max_multiplier"]
+
+                # Track maximum
+                if multiplier > max_multiplier:
+                    max_multiplier = multiplier
+
+                # Check against targets
+                for target in targets:
+                    if abs(multiplier - target) < 1e-9:  # ATOL tolerance
+                        if target not in hits_by_target:
+                            hits_by_target[target] = []
+                        hits_by_target[target].append(nonce)
+
+                total_count += 1
+
+                # Progress check for long runs
+                if total_count % 10000 == 0:
+                    elapsed = time.time() - start_time
+                    if elapsed > 300:  # 5 minute timeout
+                        raise BusinessLogicError(
+                            message="Analysis timeout exceeded",
+                            code="ANALYSIS_TIMEOUT",
+                            details={"elapsed_seconds": elapsed, "processed": total_count}
+                        )
+
+            except EngineError as e:
+                # Log individual nonce errors but continue
+                logger.warning(f"Engine error at nonce {nonce}: {e.message}")
+                continue
+            except Exception as e:
+                logger.error(f"Unexpected error at nonce {nonce}: {str(e)}")
+                # For critical errors, we might want to abort
+                if total_count == 0:  # If we can't process any nonce, fail
+                    raise EngineError(
+                        message="Analysis engine failed",
+                        code="ENGINE_FAILURE",
+                        details={"failed_nonce": nonce, "error": str(e)}
+                    )
+                continue
+
+        # Build summary
+        duration_ms = int((time.time() - start_time) * 1000)
+        counts_by_target = {str(target): len(hits) for target, hits in hits_by_target.items()}
+
+        summary = {
+            "count": total_count,
+            "duration_ms": duration_ms,
+            "difficulty": difficulty,
+            "start": start,
+            "end": end,
+            "targets": targets,
+            "max_multiplier": max_multiplier,
+            "counts_by_target": counts_by_target,
+            "engine_version": ENGINE_VERSION
+        }
+
+        logger.info(f"Analysis completed: {total_count} nonces in {duration_ms}ms")
+
+        return hits_by_target, summary
+
+    except (ValidationError, BusinessLogicError, EngineError):
+        # Re-raise application errors
+        raise
+    except Exception as e:
+        # Handle unexpected errors
+        logger.exception(f"Unexpected error in scan_pump: {str(e)}")
+        raise EngineError(
+            message="Analysis engine encountered an unexpected error",
+            code="ENGINE_UNEXPECTED_ERROR",
+            details={
+                "server_seed_hash": hashlib.sha256(server_seed.encode()).hexdigest()[:8],
+                "client_seed": client_seed,
+                "range": f"{start}-{end}",
+                "difficulty": difficulty,
+                "error_type": type(e).__name__
+            }
+        )
+```
+
+## Frontend Error Handling
+
+### React Error Boundaries
+Create comprehensive error boundaries:
+
+```typescript
+import React, { Component, ErrorInfo, ReactNode } from 'react';
+import { Button } from '@/components/ui/button';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { RefreshCw, Bug } from 'lucide-react';
+
+interface Props {
+  children: ReactNode;
+  fallback?: ReactNode;
+  onError?: (error: Error, errorInfo: ErrorInfo) => void;
+}
+
+interface State {
+  hasError: boolean;
+  error?: Error;
+  errorInfo?: ErrorInfo;
+}
+
+export class ErrorBoundary extends Component<Props, State> {
+  constructor(props: Props) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError(error: Error): State {
+    return { hasError: true, error };
+  }
+
+  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
+    console.error('Error caught by boundary:', error);
+    console.error('Error info:', errorInfo);
+
+    // Call optional error handler
+    this.props.onError?.(error, errorInfo);
+
+    // Log to external service in production
+    if (process.env.NODE_ENV === 'production') {
+      this.logErrorToService(error, errorInfo);
+    }
+
+    this.setState({ errorInfo });
+  }
+
+  private logErrorToService(error: Error, errorInfo: ErrorInfo) {
+    // In a real app, send to error tracking service
+    const errorData = {
+      message: error.message,
+      stack: error.stack,
+      componentStack: errorInfo.componentStack,
+      timestamp: new Date().toISOString(),
+      url: window.location.href,
+      userAgent: navigator.userAgent,
+    };
+
+    console.log('Would log to service:', errorData);
+  }
+
+  private handleReset = () => {
+    this.setState({ hasError: false, error: undefined, errorInfo: undefined });
+  };
+
+  private handleReload = () => {
+    window.location.reload();
+  };
+
+  render() {
+    if (this.state.hasError) {
+      if (this.props.fallback) {
+        return this.props.fallback;
+      }
+
+      return (
+        <div className="min-h-[400px] flex items-center justify-center p-6">
+          <Alert className="max-w-lg">
+            <Bug className="h-4 w-4" />
+            <AlertTitle>Something went wrong</AlertTitle>
+            <AlertDescription className="mt-2">
+              <p className="mb-4">
+                An unexpected error occurred. You can try refreshing the page or contact support if the problem persists.
+              </p>
+
+              {process.env.NODE_ENV === 'development' && this.state.error && (
+                <details className="mt-4 p-2 bg-muted rounded text-sm">
+                  <summary className="cursor-pointer font-medium">Error Details (Dev Mode)</summary>
+                  <pre className="mt-2 whitespace-pre-wrap text-xs">
+                    {this.state.error.message}
+                    {'\n\n'}
+                    {this.state.error.stack}
+                    {this.state.errorInfo?.componentStack && (
+                      '\n\nComponent Stack:' + this.state.errorInfo.componentStack
+                    )}
+                  </pre>
+                </details>
+              )}
+
+              <div className="flex gap-2 mt-4">
+                <Button onClick={this.handleReset} variant="outline" size="sm">
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                  Try Again
+                </Button>
+                <Button onClick={this.handleReload} size="sm">
+                  Reload Page
+                </Button>
+              </div>
+            </AlertDescription>
+          </Alert>
+        </div>
+      );
+    }
+
+    return this.props.children;
+  }
+}
+
+// Usage wrapper for specific features
+export function StreamsErrorBoundary({ children }: { children: ReactNode }) {
+  return (
+    <ErrorBoundary
+      onError={(error, errorInfo) => {
+        console.error('Streams feature error:', error);
+        // Could track specific feature errors differently
+      }}
+    >
+      {children}
+    </ErrorBoundary>
+  );
+}
+```
+
+### Query Error Handling
+Handle TanStack Query errors consistently:
+
+```typescript
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
+import { AxiosError } from 'axios';
+
+interface ApiError {
+  error: {
+    type: string;
+    message: string;
+    code?: string;
+    details?: Record<string, any>;
+  };
+}
+
+function isApiError(error: unknown): error is AxiosError<ApiError> {
+  return error instanceof AxiosError &&
+         error.response?.data?.error !== undefined;
+}
+
+function getErrorMessage(error: unknown): string {
+  if (isApiError(error)) {
+    return error.response?.data?.error?.message || 'An error occurred';
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return 'An unexpected error occurred';
+}
+
+function getErrorCode(error: unknown): string | undefined {
+  if (isApiError(error)) {
+    return error.response?.data?.error?.code;
+  }
+  return undefined;
+}
+
+export function useStreams() {
+  return useQuery({
+    queryKey: ['streams'],
+    queryFn: api.getStreams,
+    retry: (failureCount, error) => {
+      // Don't retry on 4xx errors (client errors)
+      if (isApiError(error) && error.response?.status && error.response.status < 500) {
+        return false;
+      }
+
+      // Retry up to 3 times for server errors
+      return failureCount < 3;
+    },
+    retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+    onError: (error) => {
+      const message = getErrorMessage(error);
+      const code = getErrorCode(error);
+
+      console.error('Failed to load streams:', error);
+      toast.error(`Failed to load streams: ${message}`, {
+        description: code ? `Error code: ${code}` : undefined,
+      });
+    },
+  });
+}
+
+export function useCreateStream() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: api.createStream,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['streams'] });
+      toast.success('Stream created successfully');
+    },
+    onError: (error) => {
+      const message = getErrorMessage(error);
+      const code = getErrorCode(error);
+
+      console.error('Failed to create stream:', error);
+
+      // Handle specific error types
+      if (code === 'VALIDATION_ERROR') {
+        toast.error('Please check your input and try again', {
+          description: message,
+        });
+      } else if (code === 'RATE_LIMIT_EXCEEDED') {
+        toast.error('Too many requests', {
+          description: 'Please wait a moment before trying again',
+        });
+      } else {
+        toast.error(`Failed to create stream: ${message}`, {
+          description: code ? `Error code: ${code}` : undefined,
+        });
+      }
+    },
+  });
+}
+```
+
+### Form Error Handling
+Handle form errors with React Hook Form:
+
+```typescript
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+
+export function CreateStreamForm() {
+  const createStream = useCreateStream();
+
+  const form = useForm<CreateStreamData>({
+    resolver: zodResolver(CreateStreamSchema),
+    defaultValues: {
+      server_seed: '',
+      client_seed: '',
+      start: 1,
+      end: 1000,
+      difficulty: 'medium',
+      targets: [],
+    },
+  });
+
+  const onSubmit = async (data: CreateStreamData) => {
+    try {
+      await createStream.mutateAsync(data);
+      form.reset();
+    } catch (error) {
+      // Handle specific validation errors
+      if (isApiError(error) && error.response?.data?.error?.details) {
+        const details = error.response.data.error.details;
+
+        // Map server validation errors to form fields
+        Object.entries(details).forEach(([field, message]) => {
+          if (form.getValues().hasOwnProperty(field)) {
+            form.setError(field as keyof CreateStreamData, {
+              type: 'server',
+              message: String(message),
+            });
+          }
+        });
+      } else {
+        // Set general form error
+        form.setError('root', {
+          type: 'server',
+          message: getErrorMessage(error),
+        });
+      }
+    }
+  };
+
+  return (
+    <form onSubmit={form.handleSubmit(onSubmit)}>
+      {/* Form fields */}
+
+      {form.formState.errors.root && (
+        <Alert variant="destructive">
+          <AlertDescription>
+            {form.formState.errors.root.message}
+          </AlertDescription>
+        </Alert>
+      )}
+
+      <Button
+        type="submit"
+        disabled={form.formState.isSubmitting}
+        className="w-full"
+      >
+        {form.formState.isSubmitting ? 'Creating...' : 'Create Stream'}
+      </Button>
+    </form>
+  );
+}
+```
+
+## Logging Configuration
+
+### Backend Logging Setup
+Configure structured logging for the backend:
+
+```python
+import logging
+import sys
+from datetime import datetime
+from typing import Dict, Any
+import json
+
+class StructuredFormatter(logging.Formatter):
+    """Custom formatter for structured JSON logs."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        log_entry = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "level": record.levelname,
+            "logger": record.name,
+            "message": record.getMessage(),
+            "module": record.module,
+            "function": record.funcName,
+            "line": record.lineno,
+        }
+
+        # Add exception info if present
+        if record.exc_info:
+            log_entry["exception"] = self.formatException(record.exc_info)
+
+        # Add extra fields from record
+        for key, value in record.__dict__.items():
+            if key not in log_entry and not key.startswith('_'):
+                log_entry[key] = value
+
+        return json.dumps(log_entry)
+
+def setup_logging(log_level: str = "INFO", structured: bool = True):
+    """Configure application logging."""
+
+    # Remove existing handlers
+    logging.getLogger().handlers.clear()
+
+    # Create handler
+    handler = logging.StreamHandler(sys.stdout)
+
+    if structured:
+        handler.setFormatter(StructuredFormatter())
+    else:
+        handler.setFormatter(
+            logging.Formatter(
+                fmt="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                datefmt="%Y-%m-%d %H:%M:%S"
+            )
+        )
+
+    # Configure root logger
+    logging.basicConfig(
+        level=getattr(logging, log_level.upper()),
+        handlers=[handler]
+    )
+
+    # Configure specific loggers
+    logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
+
+    # Security logger for audit trail
+    security_logger = logging.getLogger("security")
+    security_logger.setLevel(logging.INFO)
+```
+
+### Frontend Error Monitoring
+Set up error monitoring for the frontend:
+
+```typescript
+interface ErrorEvent {
+  message: string;
+  stack?: string;
+  url: string;
+  timestamp: string;
+  userAgent: string;
+  userId?: string;
+  sessionId: string;
+  level: 'error' | 'warning' | 'info';
+  context?: Record<string, any>;
+}
+
+class ErrorMonitor {
+  private sessionId: string;
+  private userId?: string;
+
+  constructor() {
+    this.sessionId = this.generateSessionId();
+    this.setupGlobalErrorHandlers();
+  }
+
+  private generateSessionId(): string {
+    return Math.random().toString(36).substring(2) + Date.now().toString(36);
+  }
+
+  private setupGlobalErrorHandlers() {
+    // Handle uncaught JavaScript errors
+    window.addEventListener('error', (event) => {
+      this.logError({
+        message: event.message,
+        stack: event.error?.stack,
+        url: window.location.href,
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        sessionId: this.sessionId,
+        userId: this.userId,
+        level: 'error',
+        context: {
+          filename: event.filename,
+          lineno: event.lineno,
+          colno: event.colno,
+        },
+      });
+    });
+
+    // Handle unhandled promise rejections
+    window.addEventListener('unhandledrejection', (event) => {
+      this.logError({
+        message: `Unhandled promise rejection: ${event.reason}`,
+        stack: event.reason?.stack,
+        url: window.location.href,
+        timestamp: new Date().toISOString(),
+        userAgent: navigator.userAgent,
+        sessionId: this.sessionId,
+        userId: this.userId,
+        level: 'error',
+        context: {
+          type: 'unhandled_promise_rejection',
+          reason: event.reason,
+        },
+      });
+    });
+  }
+
+  logError(errorEvent: ErrorEvent) {
+    // Log to console in development
+    if (process.env.NODE_ENV === 'development') {
+      console.error('Error logged:', errorEvent);
+    }
+
+    // In production, send to monitoring service
+    if (process.env.NODE_ENV === 'production') {
+      this.sendToMonitoringService(errorEvent);
+    }
+  }
+
+  private async sendToMonitoringService(errorEvent: ErrorEvent) {
+    try {
+      // Replace with your actual monitoring service
+      await fetch('/api/errors', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(errorEvent),
+      });
+    } catch (error) {
+      console.error('Failed to send error to monitoring service:', error);
+    }
+  }
+
+  setUserId(userId: string) {
+    this.userId = userId;
+  }
+}
+
+// Initialize error monitoring
+export const errorMonitor = new ErrorMonitor();
+
+// Export helper function for manual error logging
+export function logError(
+  message: string,
+  context?: Record<string, any>,
+  level: 'error' | 'warning' | 'info' = 'error'
+) {
+  errorMonitor.logError({
+    message,
+    url: window.location.href,
+    timestamp: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+    sessionId: errorMonitor['sessionId'],
+    userId: errorMonitor['userId'],
+    level,
+    context,
+  });
+}
+```
+
+These error handling and logging patterns ensure robust error management, comprehensive logging for debugging and monitoring, and graceful degradation when things go wrong, providing a better user experience and easier maintenance.

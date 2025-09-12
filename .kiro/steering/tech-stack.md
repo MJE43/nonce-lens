@@ -1,0 +1,177 @@
+---
+inclusion: always
+---
+
+
+## Backend Stack
+
+### Core Framework
+- **FastAPI**: Modern Python web framework with automatic OpenAPI documentation
+- **Python 3.11+**: Required for optimal performance and type hints
+- **SQLModel**: Type-safe ORM built on SQLAlchemy and Pydantic
+- **SQLite + aiosqlite**: Async SQLite driver for local-first data storage
+
+### Key Dependencies
+- **uvicorn**: ASGI server with hot reload support
+- **httpx**: Async HTTP client for external API calls
+- **python-dotenv**: Environment variable management
+- **pytest + pytest-asyncio**: Testing framework with async support
+
+### Authentication & Security
+- Token-based ingestion authentication via `X-Ingest-Token` header
+- CORS configured for local development origins only
+- Local-only binding (127.0.0.1) for security
+
+## Frontend Stack
+
+### Core Framework
+- **React 19**: Latest React with concurrent features
+- **TypeScript**: Strict type checking enabled
+- **Vite**: Fast build tool with HMR support
+
+### UI & Styling
+- **Tailwind CSS 4**: Utility-first CSS framework
+- **Radix UI**: Accessible component primitives
+- **Lucide React**: Icon library
+- **shadcn/ui**: Pre-built component system
+
+### State Management & Data Fetching
+- **TanStack Query**: Server state management with caching
+- **React Hook Form + Zod**: Form handling with validation
+- **React Router DOM**: Client-side routing
+
+### Development Tools
+- **ESLint**: Code linting with TypeScript rules
+- **TypeScript ESLint**: Type-aware linting rules
+- **Vite Plugin React**: Fast refresh support
+
+## Frontend Stack Additions
+
+### Data Grid & Virtualization
+- **TanStack React Table v8**: Declarative table rendering with sorting/filtering; used in `src/components/live-streams/columns.tsx`
+- **@tanstack/react-virtual v3**: Virtualized lists/tables for large datasets
+
+### Testing
+- **Vitest + @testing-library/react**: Component and hooks tests
+- Commands:
+  ```bash
+  # run tests in watch/UI
+  npm run test
+  npm run test:ui
+
+  # run once (CI style)
+  npm run test:run
+  ```
+
+### Module Resolution
+- **Vite alias**: `@ -> ./src` configured in `vite.config.ts`
+
+## Service Ports
+- **Backend (FastAPI/uvicorn)**: `API_HOST` default `127.0.0.1`, `API_PORT` default `8000`
+- **Frontend (Vite dev server)**: `5173`
+
+> Ensure `API_CORS_ORIGINS` includes the frontend origin (e.g., `http://localhost:5173`).
+
+## Build Commands
+
+### Backend Development
+```bash
+# Navigate to API directory
+cd pump-api
+
+# Install dependencies
+pip install -r requirements.txt
+
+# Run development server
+python start_server.py  # uses env-configured host/port, logs security settings
+
+# Run tests
+pytest
+
+# Run tests with coverage
+pytest --cov=app
+```
+
+### Frontend Development
+```bash
+# Navigate to frontend directory
+cd pump-frontend
+
+# Install dependencies
+npm install
+
+# Run development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Preview production build
+npm run preview
+
+# Run linting
+npm run lint
+
+# Clean build artifacts
+npm run clean
+```
+
+### Full Stack Development
+```bash
+# Terminal 1: Start backend
+cd pump-api && python start_server.py
+
+# Terminal 2: Start frontend
+cd pump-frontend && npm run dev
+```
+
+## Project Configuration
+
+### Environment Variables
+
+**Backend (.env)**
+```
+DATABASE_URL=sqlite+aiosqlite:///./pump.db
+API_CORS_ORIGINS=http://localhost:5173
+MAX_NONCES=500000
+INGEST_TOKEN=your-secret-token
+API_HOST=127.0.0.1
+API_PORT=8000
+INGEST_RATE_LIMIT=60
+```
+
+**Frontend (.env)**
+```
+VITE_API_BASE=http://localhost:8000
+```
+
+### Database
+- **SQLite**: Single file database (pump.db)
+- **Migrations**: Handled automatically via SQLModel table creation
+- **Backup**: Simple file copy of pump.db
+
+### Performance Targets
+- **Analysis Speed**: 200k nonces in ≤10 seconds
+- **Memory Usage**: Efficient processing without DataFrame overhead
+- **Concurrent Requests**: Handle multiple ingestion requests safely
+
+## Architecture Patterns
+
+### Backend Patterns
+- **Router-based organization**: Separate routers for different feature areas
+- **Dependency injection**: FastAPI's built-in DI for database sessions
+- **Async/await**: Full async support throughout the stack
+- **Pydantic validation**: Request/response validation with automatic docs
+- **Security headers/CORS**: CORS allows specific origins; exposes rate limit headers; custom `X-Ingest-Token`
+- **Rate limiting**: Token-bucket limiter via `core/rate_limiter.py` configured by `INGEST_RATE_LIMIT` with periodic cleanup on startup
+
+### Frontend Patterns
+- **Component composition**: Reusable UI components with props
+- **Custom hooks**: Encapsulated logic for data fetching and state
+- **Error boundaries**: Graceful error handling at component level
+- **Optimistic updates**: Immediate UI feedback with server reconciliation
+
+### Code Organization
+- **Separation of concerns**: Clear boundaries between API, business logic, and UI
+- **Type safety**: End-to-end TypeScript coverage
+- **Testing strategy**: Unit tests for logic, integration tests for workflows

@@ -1,0 +1,442 @@
+---
+inclusion: fileMatch
+fileMatchPattern: ['app/models/*.py', 'app/db.py', 'pump-api/app/models/*.py', 'pump-api/app/db.py']
+---
+
+# Database Models & SQLModel Patterns
+
+## SQLModel Structure
+
+### Base Model Patterns
+Follow consistent patterns for SQLModel definitions:
+
+```python
+from sqlmodel import SQLModel, Field, Relationship
+from datetime import datetime
+from typing import Optional, List
+from uuid import UUID, uuid4
+
+class BaseTable(SQLModel):
+    """Base class for all database tables with common fields."""
+    id: Optional[int] = Field(default=None, primary_key=True)
+    created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    updated_at: Optional[datetime] = Field(default=None, sa_column_kwargs={"onupdate": datetime.utcnow})
+
+class StreamBase(SQLModel):
+    """Base fields for Stream model."""
+    server_seed_hashed: str = Field(index=True, description="SHA256 hash of server seed")
+    client_seed: str = Field(index=True, description="Client seed string")
+    notes: Optional[str] = Field(default=None, description="User notes")
+
+class LiveStream(StreamBase, BaseTable, table=True):
+    """Live stream table definition."""
+    __tablename__ = "live_streams"
+
+    # UUID primary key for streams
+    id: UUID = Field(default_factory=uuid4, primary_key=True)
+    last_seen_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+
+    # Relationships
+    bets: List["LiveBet"] = Relationship(back_populates="stream", cascade_delete=True)
+    bookmarks: List["Bookmark"] = Relationship(back_populates="stream", cascade_delete=True)
+```
+
+### Field Definitions
+Use consistent field patterns:
+
+```python
+# Primary Keys
+id: Optional[int] = Field(default=None, primary_key=True)  # Auto-increment
+id: UUID = Field(default_factory=uuid4, primary_key=True)  # UUID
+
+# Indexed Fields
+created_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+nonce: int = Field(ge=1, index=True, description="Bet nonce")
+
+# Foreign Keys with Relationships
+stream_id: UUID = Field(foreign_key="live_streams.id", index=True)
+stream: LiveStream = Relationship(back_populates="bets")
+
+# Validation Constraints
+amount: float = Field(ge=0, description="Bet amount, must be >= 0")
+difficulty: str = Field(description="Difficulty level", sa_column=Column(String, CheckConstraint("difficulty IN ('easy', 'medium', 'hard', 'expert')")))
+
+# Optional Fields with Defaults
+notes: Optional[str] = Field(default=None, description="User notes")
+is_active: bool = Field(default=True, description="Whether record is active")
+```
+
+### Relationships
+Define clear bidirectional relationships:
+
+```python
+class LiveStream(BaseTable, table=True):
+    # One-to-many: Stream has many bets
+    bets: List["LiveBet"] = Relationship(
+        back_populates="stream",
+        cascade_delete=True,  # Delete bets when stream is deleted
+        sa_relationship_kwargs={"lazy": "select"}
+    )
+
+class LiveBet(BaseTable, table=True):
+    # Many-to-one: Bet belongs to one stream
+    stream_id: UUID = Field(foreign_key="live_streams.id", index=True)
+    stream: LiveStream = Relationship(back_populates="bets")
+```
+
+## Table Design Patterns
+
+### Naming Conventions
+- **snake_case** for table names and column names
+- Plural table names: `live_streams`, `live_bets`, `bookmarks`
+- Descriptive field names: `server_seed_hashed`, `payout_multiplier`
+
+### Indexing Strategy
+Add indexes for commonly queried fields:
+
+```python
+class LiveBet(BaseTable, table=True):
+    __tablename__ = "live_bets"
+
+    # Compound indexes for common query patterns
+    __table_args__ = (
+        Index("idx_stream_nonce", "stream_id", "nonce"),  # Stream + nonce lookups
+        Index("idx_stream_received", "stream_id", "received_at"),  # Chronological queries
+        Index("idx_multiplier_difficulty", "payout_multiplier", "difficulty"),  # Analytics queries
+    )
+
+    # Individual indexes on foreign keys and frequently filtered fields
+    stream_id: UUID = Field(foreign_key="live_streams.id", index=True)
+    nonce: int = Field(ge=1, index=True)
+    received_at: datetime = Field(default_factory=datetime.utcnow, index=True)
+    payout_multiplier: float = Field(index=True)
+```
+
+### Constraints and Validation
+Use database-level constraints for data integrity:
+
+```python
+from sqlalchemy import CheckConstraint, Column, String, Float
+
+class LiveBet(BaseTable, table=True):
+    __table_args__ = (
+        # Ensure logical data constraints
+        CheckConstraint("amount >= 0", name="check_amount_positive"),
+        CheckConstraint("payout >= 0", name="check_payout_positive"),
+        CheckConstraint("nonce >= 1", name="check_nonce_positive"),
+        CheckConstraint("difficulty IN ('easy', 'medium', 'hard', 'expert')", name="check_valid_difficulty"),
+
+        # Unique constraints
+        UniqueConstraint("stream_id", "antebot_bet_id", name="unique_bet_per_stream"),
+    )
+
+    amount: float = Field(ge=0, description="Bet amount")
+    payout: float = Field(ge=0, description="Payout amount")
+    nonce: int = Field(ge=1, description="Bet nonce")
+    difficulty: str = Field(description="Difficulty level")
+```
+
+## Query Patterns
+
+### Basic CRUD Operations
+```python
+from sqlmodel import Session, select
+from sqlalchemy.orm import selectinload
+
+async def create_stream(session: Session, stream_data: StreamCreate) -> LiveStream:
+    """Create a new stream."""
+    stream = LiveStream(**stream_data.model_dump())
+    session.add(stream)
+    await session.commit()
+    await session.refresh(stream)
+    return stream
+
+async def get_stream_by_id(session: Session, stream_id: UUID) -> Optional[LiveStream]:
+    """Get stream by ID with related data."""
+    stmt = (
+        select(LiveStream)
+        .options(selectinload(LiveStream.bets))  # Eager load bets
+        .where(LiveStream.id == stream_id)
+    )
+    result = await session.exec(stmt)
+    return result.first()
+
+async def update_stream(session: Session, stream_id: UUID, updates: StreamUpdate) -> Optional[LiveStream]:
+    """Update stream with partial data."""
+    stmt = select(LiveStream).where(LiveStream.id == stream_id)
+    result = await session.exec(stmt)
+    stream = result.first()
+
+    if not stream:
+        return None
+
+    # Update only provided fields
+    for field, value in updates.model_dump(exclude_unset=True).items():
+        setattr(stream, field, value)
+
+    stream.updated_at = datetime.utcnow()
+    await session.commit()
+    await session.refresh(stream)
+    return stream
+
+async def delete_stream(session: Session, stream_id: UUID) -> bool:
+    """Delete stream and cascade to related records."""
+    stmt = select(LiveStream).where(LiveStream.id == stream_id)
+    result = await session.exec(stmt)
+    stream = result.first()
+
+    if not stream:
+        return False
+
+    await session.delete(stream)  # Cascades to bets due to relationship config
+    await session.commit()
+    return True
+```
+
+### Advanced Queries
+```python
+from sqlalchemy import func, and_, or_, desc
+
+async def get_stream_analytics(session: Session, stream_id: UUID) -> dict:
+    """Get aggregated analytics for a stream."""
+    stmt = (
+        select(
+            func.count(LiveBet.id).label("total_bets"),
+            func.max(LiveBet.payout_multiplier).label("highest_multiplier"),
+            func.min(LiveBet.payout_multiplier).label("lowest_multiplier"),
+            func.avg(LiveBet.payout_multiplier).label("average_multiplier"),
+            func.sum(LiveBet.amount).label("total_amount"),
+            func.sum(LiveBet.payout).label("total_payout")
+        )
+        .where(LiveBet.stream_id == stream_id)
+    )
+    result = await session.exec(stmt)
+    return result.first()._asdict()
+
+async def get_recent_bets_paginated(
+    session: Session,
+    stream_id: UUID,
+    limit: int = 50,
+    offset: int = 0
+) -> List[LiveBet]:
+    """Get recent bets with pagination."""
+    stmt = (
+        select(LiveBet)
+        .where(LiveBet.stream_id == stream_id)
+        .order_by(desc(LiveBet.received_at))
+        .offset(offset)
+        .limit(limit)
+    )
+    result = await session.exec(stmt)
+    return result.all()
+
+async def search_streams_with_filters(
+    session: Session,
+    client_seed_pattern: Optional[str] = None,
+    min_bets: Optional[int] = None,
+    difficulty: Optional[str] = None,
+    limit: int = 50,
+    offset: int = 0
+) -> List[LiveStream]:
+    """Search streams with multiple optional filters."""
+    stmt = select(LiveStream)
+
+    # Build where conditions dynamically
+    conditions = []
+    if client_seed_pattern:
+        conditions.append(LiveStream.client_seed.ilike(f"%{client_seed_pattern}%"))
+
+    if min_bets:
+        # Subquery to count bets per stream
+        bet_counts = (
+            select(LiveBet.stream_id, func.count(LiveBet.id).label("bet_count"))
+            .group_by(LiveBet.stream_id)
+            .subquery()
+        )
+        stmt = stmt.join(bet_counts, LiveStream.id == bet_counts.c.stream_id)
+        conditions.append(bet_counts.c.bet_count >= min_bets)
+
+    if difficulty:
+        # Streams that have bets of specific difficulty
+        stmt = stmt.join(LiveBet)
+        conditions.append(LiveBet.difficulty == difficulty)
+
+    if conditions:
+        stmt = stmt.where(and_(*conditions))
+
+    stmt = stmt.distinct().offset(offset).limit(limit)
+    result = await session.exec(stmt)
+    return result.all()
+```
+
+### Bulk Operations
+```python
+async def bulk_insert_bets(session: Session, bets_data: List[BetCreate]) -> List[LiveBet]:
+    """Efficiently insert multiple bets."""
+    bets = [LiveBet(**bet.model_dump()) for bet in bets_data]
+
+    # Use bulk operations for better performance
+    session.add_all(bets)
+    await session.commit()
+
+    # Refresh all objects to get generated IDs
+    for bet in bets:
+        await session.refresh(bet)
+
+    return bets
+
+async def update_stream_last_seen(session: Session, stream_ids: List[UUID]) -> None:
+    """Update last_seen_at for multiple streams."""
+    now = datetime.utcnow()
+    stmt = (
+        update(LiveStream)
+        .where(LiveStream.id.in_(stream_ids))
+        .values(last_seen_at=now, updated_at=now)
+    )
+    await session.exec(stmt)
+    await session.commit()
+```
+
+## Database Session Management
+
+### Session Lifecycle
+```python
+# db.py
+from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlmodel import SQLModel
+
+async def get_session() -> AsyncSession:
+    """Dependency to get database session."""
+    async with AsyncSessionLocal() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+async def create_db_and_tables() -> None:
+    """Initialize database and create all tables."""
+    # Import all models to ensure they're registered
+    from .models import runs as _runs_models  # noqa: F401
+    from .models import live_streams as _live_models  # noqa: F401
+
+    async with engine.begin() as conn:
+        await conn.run_sync(SQLModel.metadata.create_all)
+```
+
+### Transaction Management
+```python
+async def complex_operation_with_transaction(session: Session, data: ComplexData):
+    """Perform multiple operations in a single transaction."""
+    try:
+        # Multiple operations that should be atomic
+        stream = LiveStream(**data.stream_data)
+        session.add(stream)
+        await session.flush()  # Get stream.id without committing
+
+        bets = [LiveBet(stream_id=stream.id, **bet_data) for bet_data in data.bets_data]
+        session.add_all(bets)
+
+        # Update related analytics
+        analytics = StreamAnalytics(stream_id=stream.id, **data.analytics_data)
+        session.add(analytics)
+
+        await session.commit()
+        return stream
+
+    except Exception:
+        await session.rollback()
+        raise
+```
+
+## Migration Patterns
+
+### Schema Changes
+When modifying models, consider backward compatibility:
+
+```python
+# Adding nullable columns (safe)
+class LiveBet(BaseTable, table=True):
+    # Existing fields...
+    new_optional_field: Optional[str] = Field(default=None, description="New field")
+
+# Adding non-nullable columns (requires default or migration)
+class LiveBet(BaseTable, table=True):
+    # Existing fields...
+    new_required_field: str = Field(default="default_value", description="New required field")
+
+# Renaming columns (requires migration script)
+# 1. Add new column
+# 2. Copy data from old to new
+# 3. Update application code
+# 4. Remove old column
+```
+
+### Data Migrations
+```python
+async def migrate_data(session: Session):
+    """Example data migration function."""
+    # Get all records that need migration
+    stmt = select(LiveBet).where(LiveBet.new_field == None)
+    result = await session.exec(stmt)
+    bets = result.all()
+
+    # Update in batches
+    batch_size = 1000
+    for i in range(0, len(bets), batch_size):
+        batch = bets[i:i + batch_size]
+        for bet in batch:
+            bet.new_field = calculate_new_value(bet)
+
+        await session.commit()
+```
+
+## Performance Optimization
+
+### Query Optimization
+```python
+# Use eager loading to avoid N+1 queries
+from sqlalchemy.orm import selectinload, joinedload
+
+async def get_streams_with_recent_bets(session: Session) -> List[LiveStream]:
+    """Get streams with their recent bets in a single query."""
+    stmt = (
+        select(LiveStream)
+        .options(
+            selectinload(LiveStream.bets)  # Separate query for bets
+            .selectinload(LiveBet.bookmarks)  # Chain loading for nested relationships
+        )
+        .order_by(desc(LiveStream.last_seen_at))
+        .limit(10)
+    )
+    result = await session.exec(stmt)
+    return result.all()
+
+# Use projection for data-heavy queries
+async def get_stream_summaries(session: Session) -> List[dict]:
+    """Get only the fields needed for summary view."""
+    stmt = select(
+        LiveStream.id,
+        LiveStream.client_seed,
+        LiveStream.created_at,
+        LiveStream.last_seen_at,
+        func.count(LiveBet.id).label("total_bets")
+    ).outerjoin(LiveBet).group_by(LiveStream.id)
+
+    result = await session.exec(stmt)
+    return [row._asdict() for row in result.all()]
+```
+
+### Connection Pool Configuration
+```python
+# db.py
+engine = create_async_engine(
+    settings.database_url,
+    echo=False,  # Set to True for SQL debugging
+    pool_size=20,  # Number of persistent connections
+    max_overflow=30,  # Additional connections when pool is full
+    pool_timeout=30,  # Timeout when getting connection from pool
+    pool_recycle=3600,  # Recycle connections after 1 hour
+)
+```
+
+These patterns ensure efficient, maintainable, and scalable database operations while leveraging SQLModel's type safety and SQLAlchemy's powerful query capabilities.

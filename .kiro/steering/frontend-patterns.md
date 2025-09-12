@@ -1,0 +1,564 @@
+---
+inclusion: fileMatch
+fileMatchPattern: ['src/**/*.tsx', 'src/**/*.ts', 'pump-frontend/**/*.tsx', 'pump-frontend/**/*.ts']
+---
+
+# Frontend Patterns & React Component Guidelines
+
+## Component Architecture
+
+### Component Hierarchy
+Follow the established component organization:
+
+```
+src/components/
+├── ui/              # shadcn/ui design system components
+├── layout/          # Layout components (Header, Navigation)
+├── shared/          # Reusable business components
+└── feature-name/    # Feature-specific components
+```
+
+### Component Naming
+- **PascalCase** for all React components
+- Descriptive names that indicate purpose
+- Avoid generic names like `Card` or `Button` for business components
+
+```typescript
+// Good
+export function LiveBetTable() { }
+export function StreamSummaryCard() { }
+export function MultiplierTracker() { }
+
+// Avoid
+export function Table() { }
+export function Card() { }
+export function Component() { }
+```
+
+## Component Patterns
+
+### Composition over Inheritance
+Use component composition for flexibility:
+
+```typescript
+// Good - Composable design
+interface StreamCardProps {
+  stream: StreamSummary;
+  actions?: React.ReactNode;
+  className?: string;
+}
+
+export function StreamCard({ stream, actions, className }: StreamCardProps) {
+  return (
+    <Card className={cn("stream-card", className)}>
+      <CardHeader>
+        <CardTitle>{stream.client_seed}</CardTitle>
+      </CardHeader>
+      <CardContent>
+        {/* Stream details */}
+      </CardContent>
+      {actions && <CardFooter>{actions}</CardFooter>}
+    </Card>
+  );
+}
+
+// Usage with different actions
+<StreamCard
+  stream={stream}
+  actions={<Button>View Details</Button>}
+/>
+```
+
+### Props Interface Design
+Define clear, typed interfaces:
+
+```typescript
+interface ComponentProps {
+  // Required props first
+  data: StreamData;
+  onAction: (id: string) => void;
+
+  // Optional props with defaults
+  variant?: 'default' | 'compact' | 'detailed';
+  showActions?: boolean;
+  className?: string;
+
+  // Children for composition
+  children?: React.ReactNode;
+}
+
+export function Component({
+  data,
+  onAction,
+  variant = 'default',
+  showActions = true,
+  className,
+  children
+}: ComponentProps) {
+  // Implementation
+}
+```
+
+### Conditional Rendering Patterns
+Use consistent patterns for conditional rendering:
+
+```typescript
+// Simple condition
+{isLoading && <LoadingSpinner />}
+
+// Condition with fallback
+{data ? <DataDisplay data={data} /> : <EmptyState />}
+
+// Complex conditions
+{(() => {
+  if (isLoading) return <LoadingSpinner />;
+  if (error) return <ErrorMessage error={error} />;
+  if (!data?.length) return <EmptyState message="No data available" />;
+  return <DataList data={data} />;
+})()}
+```
+
+## State Management
+
+### Local Component State
+Use `useState` for simple local state:
+
+```typescript
+function StreamFilter() {
+  const [filters, setFilters] = useState<FilterState>({
+    difficulty: 'all',
+    minMultiplier: null,
+    maxMultiplier: null
+  });
+
+  const handleFilterChange = (key: keyof FilterState, value: any) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+  };
+
+  return (
+    // Filter UI
+  );
+}
+```
+
+### Complex State with useReducer
+For complex state logic:
+
+```typescript
+interface TableState {
+  sortField: string;
+  sortDirection: 'asc' | 'desc';
+  filters: Record<string, any>;
+  pagination: { page: number; size: number };
+}
+
+type TableAction =
+  | { type: 'SET_SORT'; field: string; direction: 'asc' | 'desc' }
+  | { type: 'SET_FILTER'; key: string; value: any }
+  | { type: 'SET_PAGE'; page: number }
+  | { type: 'RESET_FILTERS' };
+
+function tableReducer(state: TableState, action: TableAction): TableState {
+  switch (action.type) {
+    case 'SET_SORT':
+      return { ...state, sortField: action.field, sortDirection: action.direction };
+    case 'SET_FILTER':
+      return { ...state, filters: { ...state.filters, [action.key]: action.value } };
+    case 'SET_PAGE':
+      return { ...state, pagination: { ...state.pagination, page: action.page } };
+    case 'RESET_FILTERS':
+      return { ...state, filters: {} };
+    default:
+      return state;
+  }
+}
+
+function DataTable() {
+  const [state, dispatch] = useReducer(tableReducer, initialState);
+  // Use state and dispatch
+}
+```
+
+## Custom Hooks
+
+### Data Fetching Hooks
+Use TanStack Query for server state:
+
+```typescript
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+
+export function useStreams(filters?: StreamFilters) {
+  return useQuery({
+    queryKey: ['streams', filters],
+    queryFn: () => api.getStreams(filters),
+    staleTime: 5 * 60 * 1000, // 5 minutes
+    refetchInterval: 30 * 1000, // 30 seconds
+  });
+}
+
+export function useCreateStream() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: api.createStream,
+    onSuccess: () => {
+      // Invalidate and refetch streams
+      queryClient.invalidateQueries({ queryKey: ['streams'] });
+    },
+  });
+}
+```
+
+### Business Logic Hooks
+Extract reusable logic into custom hooks:
+
+```typescript
+export function useStreamFilters() {
+  const [filters, setFilters] = useState<StreamFilters>({});
+  const [debouncedFilters, setDebouncedFilters] = useState(filters);
+
+  // Debounce filter changes
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebouncedFilters(filters);
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [filters]);
+
+  const updateFilter = useCallback((key: string, value: any) => {
+    setFilters(prev => ({ ...prev, [key]: value }));
+  }, []);
+
+  const clearFilters = useCallback(() => {
+    setFilters({});
+  }, []);
+
+  return {
+    filters,
+    debouncedFilters,
+    updateFilter,
+    clearFilters,
+  };
+}
+```
+
+## Form Handling
+
+### React Hook Form + Zod
+Use React Hook Form with Zod validation:
+
+```typescript
+import { useForm } from 'react-hook-form';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { z } from 'zod';
+
+const streamSchema = z.object({
+  name: z.string().min(1, 'Name is required'),
+  difficulty: z.enum(['easy', 'medium', 'hard', 'expert']),
+  targets: z.array(z.number().positive()).min(1, 'At least one target required'),
+});
+
+type StreamFormData = z.infer<typeof streamSchema>;
+
+export function StreamForm({ onSubmit }: { onSubmit: (data: StreamFormData) => void }) {
+  const {
+    register,
+    handleSubmit,
+    formState: { errors, isSubmitting },
+    reset,
+  } = useForm<StreamFormData>({
+    resolver: zodResolver(streamSchema),
+    defaultValues: {
+      name: '',
+      difficulty: 'medium',
+      targets: [],
+    },
+  });
+
+  return (
+    <form onSubmit={handleSubmit(onSubmit)}>
+      <div>
+        <Label htmlFor="name">Stream Name</Label>
+        <Input
+          id="name"
+          {...register('name')}
+          aria-invalid={errors.name ? 'true' : 'false'}
+        />
+        {errors.name && (
+          <span className="text-red-500 text-sm">{errors.name.message}</span>
+        )}
+      </div>
+
+      <Button type="submit" disabled={isSubmitting}>
+        {isSubmitting ? 'Creating...' : 'Create Stream'}
+      </Button>
+    </form>
+  );
+}
+```
+
+## Error Handling
+
+### Error Boundaries
+Wrap components with error boundaries:
+
+```typescript
+import { ErrorBoundary } from 'react-error-boundary';
+
+function ErrorFallback({ error, resetErrorBoundary }: {
+  error: Error;
+  resetErrorBoundary: () => void;
+}) {
+  return (
+    <div className="error-boundary">
+      <h2>Something went wrong:</h2>
+      <pre>{error.message}</pre>
+      <Button onClick={resetErrorBoundary}>Try again</Button>
+    </div>
+  );
+}
+
+export function ProtectedComponent({ children }: { children: React.ReactNode }) {
+  return (
+    <ErrorBoundary FallbackComponent={ErrorFallback}>
+      {children}
+    </ErrorBoundary>
+  );
+}
+```
+
+### Query Error Handling
+Handle errors in data fetching:
+
+```typescript
+export function StreamsList() {
+  const { data: streams, error, isLoading, refetch } = useStreams();
+
+  if (isLoading) return <LoadingSpinner />;
+
+  if (error) {
+    return (
+      <div className="error-state">
+        <p>Failed to load streams: {error.message}</p>
+        <Button onClick={() => refetch()}>Retry</Button>
+      </div>
+    );
+  }
+
+  return <StreamsTable streams={streams} />;
+}
+```
+
+## Performance Optimization
+
+### Memoization
+Use React.memo and useMemo appropriately:
+
+```typescript
+// Memoize expensive computations
+function StreamAnalytics({ bets }: { bets: Bet[] }) {
+  const analytics = useMemo(() => {
+    return calculateComplexAnalytics(bets);
+  }, [bets]);
+
+  return <AnalyticsDisplay data={analytics} />;
+}
+
+// Memoize components that receive stable props
+export const StreamCard = React.memo(function StreamCard({
+  stream,
+  onSelect
+}: StreamCardProps) {
+  return (
+    <Card onClick={() => onSelect(stream.id)}>
+      {/* Card content */}
+    </Card>
+  );
+});
+```
+
+### Callback Optimization
+Stabilize callbacks with useCallback:
+
+```typescript
+function StreamsList() {
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const handleSelect = useCallback((id: string) => {
+    setSelectedId(id);
+  }, []);
+
+  return (
+    <div>
+      {streams.map(stream => (
+        <StreamCard
+          key={stream.id}
+          stream={stream}
+          onSelect={handleSelect} // Stable reference
+        />
+      ))}
+    </div>
+  );
+}
+```
+
+## TypeScript Patterns
+
+### Component Props with Variants
+Use discriminated unions for component variants:
+
+```typescript
+type ButtonProps = {
+  children: React.ReactNode;
+  className?: string;
+} & (
+  | { variant: 'primary'; onClick: () => void }
+  | { variant: 'secondary'; onClick: () => void }
+  | { variant: 'link'; href: string }
+);
+
+export function Button(props: ButtonProps) {
+  if (props.variant === 'link') {
+    return <a href={props.href} className={props.className}>{props.children}</a>;
+  }
+
+  return (
+    <button
+      onClick={props.onClick}
+      className={cn('btn', `btn-${props.variant}`, props.className)}
+    >
+      {props.children}
+    </button>
+  );
+}
+```
+
+### API Type Safety
+Mirror backend types in frontend:
+
+```typescript
+// types/api.ts - Mirror backend schemas
+export interface StreamSummary {
+  id: string;
+  server_seed_hashed: string;
+  client_seed: string;
+  created_at: string;
+  last_seen_at: string;
+  total_bets: number;
+  highest_multiplier?: number;
+  notes?: string;
+}
+
+export interface BetRecord {
+  id: number;
+  antebot_bet_id: string;
+  received_at: string;
+  nonce: number;
+  amount: number;
+  payout_multiplier: number;
+  difficulty: 'easy' | 'medium' | 'hard' | 'expert';
+}
+```
+
+## Styling with Tailwind
+
+### Component Styling
+Use Tailwind classes with the `cn` utility:
+
+```typescript
+import { cn } from '@/lib/utils';
+
+interface CardProps {
+  variant?: 'default' | 'highlighted' | 'muted';
+  className?: string;
+  children: React.ReactNode;
+}
+
+export function Card({ variant = 'default', className, children }: CardProps) {
+  return (
+    <div className={cn(
+      'rounded-lg border bg-card text-card-foreground shadow-sm',
+      {
+        'border-primary bg-primary/5': variant === 'highlighted',
+        'bg-muted text-muted-foreground': variant === 'muted',
+      },
+      className
+    )}>
+      {children}
+    </div>
+  );
+}
+```
+
+### Responsive Design
+Use Tailwind's responsive prefixes:
+
+```typescript
+export function StreamGrid({ streams }: { streams: StreamSummary[] }) {
+  return (
+    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+      {streams.map(stream => (
+        <StreamCard key={stream.id} stream={stream} />
+      ))}
+    </div>
+  );
+}
+```
+
+## Testing Patterns
+
+### Component Testing
+Test components in isolation:
+
+```typescript
+import { render, screen, fireEvent } from '@testing-library/react';
+import { StreamCard } from './StreamCard';
+
+describe('StreamCard', () => {
+  const mockStream = {
+    id: '123',
+    client_seed: 'test_seed',
+    total_bets: 100,
+    highest_multiplier: 5.5,
+  };
+
+  it('displays stream information', () => {
+    render(<StreamCard stream={mockStream} />);
+
+    expect(screen.getByText('test_seed')).toBeInTheDocument();
+    expect(screen.getByText('100 bets')).toBeInTheDocument();
+    expect(screen.getByText('5.5x max')).toBeInTheDocument();
+  });
+
+  it('calls onSelect when clicked', () => {
+    const onSelect = jest.fn();
+    render(<StreamCard stream={mockStream} onSelect={onSelect} />);
+
+    fireEvent.click(screen.getByRole('button'));
+    expect(onSelect).toHaveBeenCalledWith('123');
+  });
+});
+```
+
+### Hook Testing
+Test custom hooks:
+
+```typescript
+import { renderHook, act } from '@testing-library/react';
+import { useStreamFilters } from './useStreamFilters';
+
+describe('useStreamFilters', () => {
+  it('updates filters correctly', () => {
+    const { result } = renderHook(() => useStreamFilters());
+
+    act(() => {
+      result.current.updateFilter('difficulty', 'expert');
+    });
+
+    expect(result.current.filters.difficulty).toBe('expert');
+  });
+});
+```
+
+These patterns ensure consistent, maintainable, and performant React components while leveraging TypeScript for type safety and modern React patterns for optimal user experience.
