@@ -609,14 +609,16 @@ export const liveStreamsApi = {
 
   // Get stream bets with pagination
   getBets: (id: string, params?: StreamBetsFilters) =>
-    apiClient.get<{ total: number; bets: BetRecord[] }>(`/live/streams/${id}/bets`, { params }),
+    apiClient.get<{ total: number; bets: BetRecord[] }>(`/live/streams/${id}/bets`, { 
+      params: { ...params, include_distance: true } 
+    }),
 
   // Get incremental updates
   tail: (id: string, sinceId: number, includeDistance?: boolean) =>
     apiClient.get<TailResponse>(`/live/streams/${id}/tail`, { 
       params: { 
         since_id: sinceId,
-        ...(includeDistance && { include_distance: includeDistance })
+        include_distance: includeDistance ?? true
       } 
     }),
 

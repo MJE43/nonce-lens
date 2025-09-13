@@ -1,0 +1,97 @@
+/* Custom styles for Mantine React Table to match dark theme */
+
+/* Table container */
+.mantine-Table-root {
+  background-color: hsl(222.2 84% 4.9%) !important;
+  border: 1px solid hsl(217.2 32.6% 17.5%) !important;
+  border-radius: 0.5rem !important;
+}
+
+/* Table header */
+.mantine-Table-root thead {
+  background-color: hsl(210 40% 8%) !important;
+}
+
+.mantine-Table-root th {
+  background-color: hsl(210 40% 8%) !important;
+  color: hsl(215.4 16.3% 46.9%) !important;
+  border-bottom: 1px solid hsl(217.2 32.6% 17.5%) !important;
+  font-weight: 500 !important;
+}
+
+/* Table body */
+.mantine-Table-root tbody {
+  background-color: hsl(222.2 84% 4.9%) !important;
+}
+
+.mantine-Table-root td {
+  background-color: hsl(222.2 84% 4.9%) !important;
+  color: hsl(210 40% 98%) !important;
+  border-bottom: 1px solid hsl(217.2 32.6% 17.5%) !important;
+}
+
+.mantine-Table-root tbody tr:hover {
+  background-color: hsl(210 40% 8% / 0.5) !important;
+}
+
+.mantine-Table-root tbody tr:hover td {
+  background-color: hsl(210 40% 8% / 0.5) !important;
+}
+
+/* Toolbar styling */
+.mantine-Paper-root {
+  background-color: hsl(222.2 84% 4.9%) !important;
+  border: 1px solid hsl(217.2 32.6% 17.5%) !important;
+}
+
+/* Input fields in filters */
+.mantine-TextInput-input {
+  background-color: hsl(222.2 84% 4.9%) !important;
+  border-color: hsl(217.2 32.6% 17.5%) !important;
+  color: hsl(210 40% 98%) !important;
+}
+
+.mantine-TextInput-input:focus {
+  border-color: hsl(217.2 91.2% 59.8%) !important;
+}
+
+/* Search input */
+.mantine-TextInput-root {
+  background-color: hsl(222.2 84% 4.9%) !important;
+}
+
+/* Pagination and other controls */
+.mantine-ActionIcon-root {
+  background-color: hsl(222.2 84% 4.9%) !important;
+  border-color: hsl(217.2 32.6% 17.5%) !important;
+  color: hsl(210 40% 98%) !important;
+}
+
+.mantine-ActionIcon-root:hover {
+  background-color: hsl(210 40% 8%) !important;
+}
+
+/* Progress bars */
+.mantine-Progress-root {
+  background-color: hsl(217.2 32.6% 17.5%) !important;
+}
+
+/* Scrollbar styling for webkit browsers */
+.mantine-Table-root ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.mantine-Table-root ::-webkit-scrollbar-track {
+  background: hsl(217.2 32.6% 17.5%);
+  border-radius: 4px;
+}
+
+.mantine-Table-root ::-webkit-scrollbar-thumb {
+  background: hsl(215.4 16.3% 46.9%);
+  border-radius: 4px;
+}
+
+.mantine-Table-root ::-webkit-scrollbar-thumb:hover {
+  background: hsl(210 40% 98%);
+}
