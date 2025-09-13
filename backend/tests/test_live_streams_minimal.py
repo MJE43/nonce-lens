@@ -7,22 +7,31 @@ from httpx import AsyncClient
 from sqlmodel import SQLModel
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
 from sqlalchemy.orm import sessionmaker
+from uuid import uuid4
+import os
+import time
 
 from app.main import app
 from app.db import get_session
+from app.core.config import get_settings
 
 
 @pytest.fixture
 async def test_db():
     """Create a test database."""
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=True)
+    db_name = f"./test_{uuid4()}.db"
+    TEST_DATABASE_URL = f"sqlite+aiosqlite:///{db_name}"
+    engine = create_async_engine(TEST_DATABASE_URL, echo=True)
     async with engine.begin() as conn:
         await conn.run_sync(SQLModel.metadata.create_all)
-    return engine
+
+    yield engine
+
+    os.remove(db_name)
 
 
 @pytest.fixture
-async def client(test_db):
+async def client(test_db, monkeypatch):
     """Create test client."""
     TestSessionLocal = sessionmaker(test_db, class_=AsyncSession, expire_on_commit=False)
 
@@ -31,12 +40,15 @@ async def client(test_db):
             yield session
 
     app.dependency_overrides[get_session] = get_test_session
+    get_settings().testing = True
 
     try:
-        async with AsyncClient(app=app, base_url="http://test") as ac:
-            yield ac
+        async with app.router.lifespan_context(app):
+            async with AsyncClient(app=app, base_url="http://test") as ac:
+                yield ac
     finally:
         app.dependency_overrides.clear()
+        get_settings().testing = False
 
 
 async def test_health_check(client: AsyncClient):
@@ -45,37 +57,8 @@ async def test_health_check(client: AsyncClient):
     assert response.status_code == 200
 
 
-async def test_simple_ingest(client: AsyncClient, monkeypatch):
+async def test_simple_ingest(client: AsyncClient):
     """Test simple ingestion."""
-    # Disable rate limiting for this test
-    from app.core.config import Settings
-    from app.routers.live_streams import get_settings as _orig_get_settings
-
-    def mock_get_settings():
-        s = _orig_get_settings()
-        return Settings(
-            database_url="sqlite+aiosqlite:///:memory:",
-            api_cors_origins=s.api_cors_origins,
-            max_nonces=s.max_nonces,
-            ingest_token=None,
-            api_host=s.api_host,
-            api_port=s.api_port,
-            ingest_rate_limit=1000000,
-        )
-
-    monkeypatch.setattr("app.routers.live_streams.get_settings", mock_get_settings)
-
-    # Mock rate limiter dependency to always allow requests
-    def mock_rate_limit_dependency():
-        async def _rate_limit():
-            return None  # No rate limiting
-
-        return _rate_limit
-
-    monkeypatch.setattr(
-        "app.routers.live_streams.get_rate_limit_dependency", mock_rate_limit_dependency
-    )
-
     payload = {
         "id": "test_bet",
         "nonce": 1,
@@ -88,6 +71,7 @@ async def test_simple_ingest(client: AsyncClient, monkeypatch):
     }
 
     response = await client.post("/live/ingest", json=payload)
+    time.sleep(2)
     print(f"Status: {response.status_code}")
     print(f"Response: {response.text}")
 

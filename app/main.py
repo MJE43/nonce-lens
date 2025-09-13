@@ -1,6 +1,5 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import asyncio
 
 from .core.config import get_settings
 from .db import create_db_and_tables
@@ -30,7 +29,7 @@ app.add_middleware(
     ],
     expose_headers=[
         "X-RateLimit-Limit",
-        "X-RateLimit-Remaining", 
+        "X-RateLimit-Remaining",
         "X-RateLimit-Reset",
         "Retry-After"
     ]
@@ -40,11 +39,11 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_startup():
     await create_db_and_tables()
-    app.state.ingest_lock = asyncio.Lock()
-    
+
     # Start periodic cleanup for rate limiter
+    import asyncio
     from .core.rate_limiter import get_rate_limiter
-    
+
     async def cleanup_rate_limiter():
         """Periodic cleanup of rate limiter to prevent memory leaks."""
         while True:
@@ -56,7 +55,7 @@ async def on_startup():
             except Exception as e:
                 # Log error but don't crash the cleanup task
                 print(f"Rate limiter cleanup error: {e}")
-    
+
     # Start cleanup task in background
     asyncio.create_task(cleanup_rate_limiter())
 
@@ -76,7 +75,7 @@ app.include_router(metrics.router)
 async def healthz():
     """
     Health check endpoint with live streams functionality verification.
-    
+
     Returns overall system status. Enhanced to verify live streams functionality
     is properly integrated and accessible.
     """
@@ -84,22 +83,22 @@ async def healthz():
         # Test that live streams models and router are properly imported
         from .models.live_streams import LiveStream, LiveBet
         from .routers.streams import router as streams_router
-        
+
         # Verify the router is included (basic integration check)
         streams_routes = [route.path for route in streams_router.routes]
         expected_routes = ["/ingest", "/streams", "/streams/{stream_id}"]
-        
+
         # Check that key routes are present
         has_required_routes = all(
             any(expected in route for route in streams_routes)
             for expected in expected_routes
         )
-        
+
         if not has_required_routes:
             return {"status": "degraded", "error": "Live streams routes not properly configured"}
-        
+
         return {"status": "ok"}
-        
+
     except ImportError as e:
         return {"status": "degraded", "error": "Live streams functionality not available"}
     except Exception as e:
