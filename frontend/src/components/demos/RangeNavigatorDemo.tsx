@@ -5,8 +5,8 @@
  */
 
 import React, { useState } from 'react';
-import { RangeNavigator } from './RangeNavigator';
-import { RangeSelector } from './RangeSelector';
+import { RangeNavigator } from '../RangeNavigator';
+import { RangeSelector } from '../RangeSelector';
 
 export const RangeNavigatorDemo: React.FC = () => {
   const [currentRange, setCurrentRange] = useState<[number, number]>([0, 10000]);

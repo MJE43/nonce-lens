@@ -5,7 +5,7 @@
 import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import { AnalysisBar } from '../AnalysisBar';
+import { AnalysisBar } from '../components/AnalysisBar';
 import { BucketStats } from '@/lib/analysisMath';
 
 const mockStats: BucketStats = {

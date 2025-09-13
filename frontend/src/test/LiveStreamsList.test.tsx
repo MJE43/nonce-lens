@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, mockStreamSummary } from '@/test/utils'
-import LiveStreamsList from '../LiveStreamsList'
+import LiveStreamsList from '../pages/LiveStreamsList'
 import * as useEnhancedLiveStreamsModule from '@/hooks/useEnhancedLiveStreams'
 
 // Mock the hooks

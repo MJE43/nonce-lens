@@ -8,38 +8,27 @@ import {
 import { useStreamBetsQuery } from "@/hooks/useStreamBetsQuery";
 
 import { useAnalyticsState } from "@/hooks/useAnalyticsState";
-import { 
-  useHits, 
-  useHitStats, 
-  useHitsBatch 
+import {
+  useHits,
+  useHitStats,
+  useHitsBatch,
 } from "@/hooks/useHitCentricAnalysis";
 import { liveStreamsApi } from "../lib/api";
 
 import OfflineIndicator from "@/components/OfflineIndicator";
 import { showSuccessToast, showErrorToast } from "../lib/errorHandling";
 import { AnalysisProvider, useAnalysis } from "@/contexts";
-import {
-  ArrowLeft,
-  Activity,
-  BarChart3,
-  RefreshCw,
-} from "lucide-react";
+import { ArrowLeft, Activity, BarChart3, RefreshCw } from "lucide-react";
 
 // ShadCN Components
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MultiplierTracker } from "@/components/live-streams/MultiplierTracker";
 import { AnalysisBar } from "@/components/AnalysisBar";
 import { StreamDetailHeader } from "@/components/live-streams/StreamDetailHeader";
 import { StreamInfoCard } from "@/components/live-streams/StreamInfoCard";
-import { BetsTableCard } from "@/components/live-streams/BetsTableCard";
-
+import { BetsTableCard } from "@/test/BetsTableCard";
 
 const LiveStreamDetailContent = () => {
   const { id } = useParams<{ id: string }>();
@@ -71,7 +60,7 @@ const LiveStreamDetailContent = () => {
   const [isPolling, setIsPolling] = useState(true);
   const [highFrequencyMode, setHighFrequencyMode] = useState(true); // Default to high frequency for betting
 
-  const isAnalysisMode = mode === 'analysis';
+  const isAnalysisMode = mode === "analysis";
 
   // Shared, memoized filters to stabilize query keys
   const betsFilters = useMemo(
@@ -83,38 +72,38 @@ const LiveStreamDetailContent = () => {
   const betsQuery = useStreamBetsQuery({
     streamId: id!,
     filters: betsFilters,
-    enabled: isPolling && mode === 'live',
+    enabled: isPolling && mode === "live",
     pollingInterval: highFrequencyMode ? 500 : 2000,
   });
 
-  // Hit-centric analysis queries
+  // Hit-centric analysis queries - analyze ALL bets in the stream, no range restrictions
   const hitsQuery = useHits({
     streamId: id!,
-    bucket: focusedBucket || minMultiplier,
-    range: currentRange,
-    enabled: isAnalysisMode && (focusedBucket !== null || minMultiplier > 1) && !!id,
+    bucket: focusedBucket || 1066.73, // Default to first common multiplier if no focused bucket
+    // Remove range restriction - analyze all bets in the stream
+    enabled: isAnalysisMode && !!id, // Remove minMultiplier requirement
   });
 
   const hitStatsQuery = useHitStats({
     streamId: id!,
-    bucket: focusedBucket || minMultiplier,
-    ranges: [`${currentRange[0]}-${currentRange[1]}`],
-    enabled: isAnalysisMode && (focusedBucket !== null || minMultiplier > 1) && !!id,
+    bucket: focusedBucket || 1066.73, // Default to first common multiplier if no focused bucket
+    // Remove ranges restriction - get global stats for the entire stream
+    enabled: isAnalysisMode && !!id, // Remove minMultiplier requirement
   });
 
   // Batch query for pinned buckets (when in analysis mode and have pinned buckets)
   const hitsBatchQuery = useHitsBatch({
     streamId: id!,
     buckets: pinnedBuckets,
-    range: currentRange,
+    // Remove range restriction - analyze all bets in the stream
     enabled: isAnalysisMode && pinnedBuckets.length > 0 && !!id,
   });
 
-
-
   // Calculate loading state based on mode
-  const betsLoading = isAnalysisMode 
-    ? (hitsQuery.isLoading || hitStatsQuery.isLoading || (pinnedBuckets.length > 0 && hitsBatchQuery.isLoading))
+  const betsLoading = isAnalysisMode
+    ? hitsQuery.isLoading ||
+      hitStatsQuery.isLoading ||
+      (pinnedBuckets.length > 0 && hitsBatchQuery.isLoading)
     : betsQuery.isLoading;
 
   // Analytics state hook for processing incoming bets (live mode only)
@@ -127,21 +116,25 @@ const LiveStreamDetailContent = () => {
 
   // Update analytics when bets change in live mode
   useEffect(() => {
-    if (mode === 'live' && betsQuery.bets.length > 0) {
+    if (mode === "live" && betsQuery.bets.length > 0) {
       updateFromTail(betsQuery.bets);
     }
   }, [mode, betsQuery.bets, updateFromTail]);
 
   // Update analysis context with hits data when in analysis mode
   useEffect(() => {
-    if (mode === 'analysis' && hitsQuery.hits.length > 0) {
+    if (mode === "analysis" && hitsQuery.hits.length > 0) {
       setHits(hitsQuery.hits);
     }
   }, [mode, hitsQuery.hits, setHits]);
 
   // Update analysis context with batch hits for pinned buckets
   useEffect(() => {
-    if (mode === 'analysis' && hitsBatchQuery.hitsByBucket && Object.keys(hitsBatchQuery.hitsByBucket).length > 0) {
+    if (
+      mode === "analysis" &&
+      hitsBatchQuery.hitsByBucket &&
+      Object.keys(hitsBatchQuery.hitsByBucket).length > 0
+    ) {
       // Combine all hits from batch query for context
       const allBatchHits = Object.values(hitsBatchQuery.hitsByBucket).flat();
       if (allBatchHits.length > 0) {
@@ -154,7 +147,7 @@ const LiveStreamDetailContent = () => {
   const betsData = useMemo(() => {
     if (isAnalysisMode) {
       // In analysis mode, use hits data with precomputed distances
-      return hitsQuery.hits.map(hit => ({
+      return hitsQuery.hits.map((hit) => ({
         // Core BetRecord fields
         id: hit.id,
         nonce: hit.nonce,
@@ -167,7 +160,7 @@ const LiveStreamDetailContent = () => {
         antebot_bet_id: `hit-${hit.id}`,
         amount: 0,
         payout: 0,
-        difficulty: 'expert' as const,
+        difficulty: "expert" as const,
       }));
     } else {
       // In live mode, use regular bets
@@ -175,14 +168,31 @@ const LiveStreamDetailContent = () => {
     }
   }, [isAnalysisMode, hitsQuery.hits, betsQuery.bets]);
 
-  // Focused multiplier statistics from hit stats
+  // Focused multiplier statistics from hit stats - now for entire stream
   const multiplierStats = useMemo(() => {
-    if (!isAnalysisMode || (!focusedBucket && minMultiplier <= 1) || hitStatsQuery.statsByRange.length === 0) {
-      return { count: 0, median: null, min: null, max: null, mean: null, method: 'exact' as const };
+    if (
+      !isAnalysisMode ||
+      hitStatsQuery.statsByRange.length === 0
+    ) {
+      return {
+        count: 0,
+        median: null,
+        min: null,
+        max: null,
+        mean: null,
+        method: "exact" as const,
+      };
     }
     const rangeStats = hitStatsQuery.statsByRange[0];
     if (!rangeStats) {
-      return { count: 0, median: null, min: null, max: null, mean: null, method: 'exact' as const };
+      return {
+        count: 0,
+        median: null,
+        min: null,
+        max: null,
+        mean: null,
+        method: "exact" as const,
+      };
     }
     const stats = rangeStats.stats;
     return {
@@ -193,7 +203,7 @@ const LiveStreamDetailContent = () => {
       max: stats.max,
       method: stats.method,
     };
-  }, [isAnalysisMode, focusedBucket, minMultiplier, hitStatsQuery.statsByRange]);
+  }, [isAnalysisMode, hitStatsQuery.statsByRange]);
 
   // Extract distinct multipliers from stream data
   const streamMultipliers = useMemo(() => {
@@ -207,6 +217,78 @@ const LiveStreamDetailContent = () => {
     return Array.from(multipliers).sort((a, b) => a - b);
   }, [betsData]);
 
+  // Calculate pinned multiplier statistics from hits data (analysis mode)
+  const analysisModePinnedMultipliers = useMemo(() => {
+    if (mode !== "analysis") return new Map();
+    
+    return new Map(
+      pinnedBuckets.map((bucket) => {
+        // Use batch hits data if available, otherwise use individual hits data
+        let bucketHits: typeof hitsQuery.hits = [];
+        
+        if (hitsBatchQuery.hitsByBucket && hitsBatchQuery.hitsByBucket[bucket.toString()]) {
+          bucketHits = hitsBatchQuery.hitsByBucket[bucket.toString()];
+        } else if (focusedBucket === bucket) {
+          // Use focused bucket hits if this is the focused bucket
+          bucketHits = hitsQuery.hits.filter(hit => 
+            Math.abs(hit.bucket - bucket) < 0.01
+          );
+        }
+        
+        // Calculate gaps (distances between consecutive hits)
+        const gaps = bucketHits
+          .map(hit => hit.distance_prev)
+          .filter((gap): gap is number => gap !== null && gap > 0);
+        
+        // Calculate statistics
+        const count = bucketHits.length;
+        const lastNonce = bucketHits.length > 0 ? Math.max(...bucketHits.map(h => h.nonce)) : 0;
+        const lastGap = gaps.length > 0 ? gaps[gaps.length - 1] : 0;
+        const meanGap = gaps.length > 0 ? gaps.reduce((a, b) => a + b, 0) / gaps.length : 0;
+        
+        // Calculate standard deviation
+        const variance = gaps.length > 1 
+          ? gaps.reduce((acc, gap) => acc + Math.pow(gap - meanGap, 2), 0) / (gaps.length - 1)
+          : 0;
+        const stdGap = Math.sqrt(variance);
+        
+        // Calculate percentiles
+        const sortedGaps = [...gaps].sort((a, b) => a - b);
+        const p90Gap = sortedGaps.length > 0 
+          ? sortedGaps[Math.floor(sortedGaps.length * 0.9)] || 0
+          : 0;
+        const p99Gap = sortedGaps.length > 0 
+          ? sortedGaps[Math.floor(sortedGaps.length * 0.99)] || 0
+          : 0;
+        const maxGap = sortedGaps.length > 0 ? Math.max(...sortedGaps) : 0;
+        
+        return [
+          bucket,
+          {
+            multiplier: bucket,
+            tolerance: 0.01,
+            stats: {
+              count,
+              lastNonce,
+              lastGap,
+              meanGap,
+              stdGap,
+              maxGap,
+              p90Gap,
+              p99Gap,
+              ringBuffer: { size: count, capacity: 50 } as unknown,
+              eta: { 
+                value: lastNonce + meanGap, 
+                model: "observed" as const 
+              },
+            },
+            alerts: [],
+          },
+        ];
+      })
+    );
+  }, [mode, pinnedBuckets, hitsQuery, hitsBatchQuery.hitsByBucket, focusedBucket]);
+
   // Detect difficulty based on highest multiplier seen
   const detectedDifficulty = useMemo(() => {
     if (streamMultipliers.length === 0) return "expert";
@@ -218,14 +300,16 @@ const LiveStreamDetailContent = () => {
   }, [streamMultipliers]);
 
   // Handle show distances functionality
-  const handleShowDistances = useCallback((multiplier: number) => {
-    setFocusedBucket(multiplier);
-    // Switch to analysis mode if not already
-    if (mode === 'live') {
-      setMode('analysis');
-      setMinMultiplier(multiplier);
-    }
-  }, [setFocusedBucket, mode, setMode, setMinMultiplier]);
+  const handleShowDistances = useCallback(
+    (multiplier: number) => {
+      setFocusedBucket(multiplier);
+      // Switch to analysis mode if not already
+      if (mode === "live") {
+        setMode("analysis");
+      }
+    },
+    [setFocusedBucket, mode, setMode]
+  );
 
   const {
     data: streamDetail,
@@ -285,9 +369,14 @@ const LiveStreamDetailContent = () => {
   };
 
   // Check for analysis mode errors
-  const analysisError = isAnalysisMode && (hitsQuery.isError || hitStatsQuery.isError || hitsBatchQuery.isError);
-  const analysisErrorMessage = analysisError 
-    ? (hitsQuery.error?.message || hitStatsQuery.error?.message || hitsBatchQuery.error?.message || 'Analysis query failed')
+  const analysisError =
+    isAnalysisMode &&
+    (hitsQuery.isError || hitStatsQuery.isError || hitsBatchQuery.isError);
+  const analysisErrorMessage = analysisError
+    ? hitsQuery.error?.message ||
+      hitStatsQuery.error?.message ||
+      hitsBatchQuery.error?.message ||
+      "Analysis query failed"
     : null;
 
   if (streamLoading || betsLoading) {
@@ -338,7 +427,9 @@ const LiveStreamDetailContent = () => {
         isPolling={isPolling}
         onTogglePolling={() => setIsPolling(!isPolling)}
         highFrequencyMode={highFrequencyMode}
-        onToggleHighFrequencyMode={() => setHighFrequencyMode(!highFrequencyMode)}
+        onToggleHighFrequencyMode={() =>
+          setHighFrequencyMode(!highFrequencyMode)
+        }
       />
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -365,9 +456,7 @@ const LiveStreamDetailContent = () => {
               </CardTitle>
             </CardHeader>
             <CardContent>
-              <p className="text-red-300 mb-4">
-                {analysisErrorMessage}
-              </p>
+              <p className="text-red-300 mb-4">{analysisErrorMessage}</p>
               <div className="flex gap-2">
                 <Button
                   variant="outline"
@@ -384,7 +473,7 @@ const LiveStreamDetailContent = () => {
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={() => setMode('live')}
+                  onClick={() => setMode("live")}
                 >
                   <ArrowLeft className="w-4 h-4 mr-2" />
                   Exit Analysis
@@ -417,30 +506,15 @@ const LiveStreamDetailContent = () => {
 
           {/* Multiplier Tracker */}
           <MultiplierTracker
-            pinnedMultipliers={mode === 'live' 
-              ? analyticsState.pinnedMultipliers 
-              : new Map(pinnedBuckets.map(bucket => [bucket, { 
-                  multiplier: bucket, 
-                  tolerance: 0.01,
-                  stats: { 
-                    count: 0, 
-                    lastNonce: 0, 
-                    lastGap: 0, 
-                    meanGap: 0, 
-                    stdGap: 0, 
-                    maxGap: 0, 
-                    p90Gap: 0, 
-                    p99Gap: 0, 
-                    ringBuffer: { size: 0, capacity: 50 } as any, // Simplified for analysis mode
-                    eta: { value: 0, model: 'theoretical' as const }
-                  },
-                  alerts: []
-                }]))
+            pinnedMultipliers={
+              mode === "live"
+                ? analyticsState.pinnedMultipliers
+                : analysisModePinnedMultipliers
             }
             streamMultipliers={streamMultipliers}
             difficulty={detectedDifficulty}
-            onPin={mode === 'live' ? pinMultiplier : addPinnedBucket}
-            onUnpin={mode === 'live' ? unpinMultiplier : removePinnedBucket}
+            onPin={mode === "live" ? pinMultiplier : addPinnedBucket}
+            onUnpin={mode === "live" ? unpinMultiplier : removePinnedBucket}
             onShowDistances={handleShowDistances}
             className="h-fit"
           />
@@ -452,11 +526,6 @@ const LiveStreamDetailContent = () => {
           onModeChange={setMode}
           focusedBucket={focusedBucket}
           onFocusedBucketChange={setFocusedBucket}
-          currentRange={currentRange}
-          onRangeChange={setCurrentRange}
-          maxNonce={streamDetail?.total_bets || 100000}
-          minMultiplier={minMultiplier}
-          onMinMultiplierChange={setMinMultiplier}
           stats={multiplierStats}
           pinnedBuckets={pinnedBuckets}
           statsByPinnedBuckets={statsByPinnedBuckets}
@@ -464,14 +533,14 @@ const LiveStreamDetailContent = () => {
             // Update pinned buckets through context
             const currentPinned = new Set(pinnedBuckets);
             const newPinned = new Set(buckets);
-            
+
             // Add new buckets
             for (const bucket of newPinned) {
               if (!currentPinned.has(bucket)) {
                 addPinnedBucket(bucket);
               }
             }
-            
+
             // Remove old buckets
             for (const bucket of currentPinned) {
               if (!newPinned.has(bucket)) {
@@ -479,7 +548,7 @@ const LiveStreamDetailContent = () => {
               }
             }
           }}
-          scopeLabel={scopeLabel}
+          scopeLabel="Full Stream Analysis"
         />
 
         <BetsTableCard
@@ -503,7 +572,7 @@ const LiveStreamDetailContent = () => {
 // Wrapper component with AnalysisProvider
 const LiveStreamDetail = () => {
   const { id } = useParams<{ id: string }>();
-  
+
   // Route parameter validation
   if (!id) {
     return (

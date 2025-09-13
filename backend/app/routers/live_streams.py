@@ -49,6 +49,11 @@ from ..schemas.live_streams import (
 )
 
 
+def uuid_to_db_format(uuid_obj: UUID) -> str:
+    """Convert UUID to database format (without hyphens)."""
+    return str(uuid_obj).replace('-', '')
+
+
 router = APIRouter(prefix="/live", tags=["live-streams"])
 
 
@@ -523,7 +528,7 @@ async def list_stream_bets(
                 WHERE stream_id = :stream_id {min_multiplier_filter}
             """
             )
-            count_result = await session.execute(count_query, {"stream_id": str(stream_id)})
+            count_result = await session.execute(count_query, {"stream_id": uuid_to_db_format(stream_id)})
             total_bets = count_result.scalar_one()
 
             # Get bets with distance calculation
@@ -553,7 +558,7 @@ async def list_stream_bets(
 
             bets_result = await session.execute(
                 distance_query,
-                {"stream_id": str(stream_id), "limit": limit, "offset": offset},
+                {"stream_id": uuid_to_db_format(stream_id), "limit": limit, "offset": offset},
             )
             bet_records = bets_result.fetchall()
 
@@ -699,7 +704,7 @@ async def tail_stream_bets(
             )
 
             tail_result = await session.execute(
-                distance_query, {"stream_id": str(stream_id), "since_id": since_id}
+                distance_query, {"stream_id": uuid_to_db_format(stream_id), "since_id": since_id}
             )
             new_bet_records = tail_result.fetchall()
 
@@ -1730,7 +1735,7 @@ async def get_stream_metrics(
 
             density_result = await session.execute(
                 density_query,
-                {"stream_id": str(stream_id), "bucket_size": bucket_size}
+                {"stream_id": uuid_to_db_format(stream_id), "bucket_size": bucket_size}
             )
 
             for row in density_result:
@@ -1943,7 +1948,7 @@ async def get_stream_hits(
             """)
 
             hits_result = await session.execute(hits_query, {
-                "stream_id": str(stream_id),
+                "stream_id": uuid_to_db_format(stream_id),
                 "bucket_2dp": bucket_2dp,
                 "after_nonce": after_nonce,
                 "before_nonce": before_nonce,
@@ -2108,28 +2113,41 @@ async def get_hit_statistics(
                     WHERE prev_nonce IS NOT NULL
                 )
                 SELECT 
-                    COUNT(*) as count,
-                    AVG(distance) as mean,
-                    MIN(distance) as min,
-                    MAX(distance) as max
+                    distance
                 FROM distances
+                ORDER BY distance
             """)
 
             stats_result = await session.execute(stats_query, {
-                "stream_id": str(stream_id),
+                "stream_id": uuid_to_db_format(stream_id),
                 "bucket_2dp": bucket_2dp,
                 "start_nonce": start_nonce,
                 "end_nonce": end_nonce
             })
-            stats_row = stats_result.first()
+            distances = [row.distance for row in stats_result.fetchall()]
 
-            if stats_row and stats_row.count > 0:
+            if distances:
+                # Calculate statistics in Python for accuracy
+                count = len(distances)
+                mean = sum(distances) / count
+                min_distance = min(distances)
+                max_distance = max(distances)
+                
+                # Calculate proper median
+                sorted_distances = sorted(distances)
+                if count % 2 == 0:
+                    # Even number of elements - average of middle two
+                    median = (sorted_distances[count // 2 - 1] + sorted_distances[count // 2]) / 2
+                else:
+                    # Odd number of elements - middle element
+                    median = sorted_distances[count // 2]
+                
                 bucket_stats = BucketStats(
-                    count=stats_row.count,
-                    median=float(stats_row.mean) if stats_row.mean is not None else None,  # Use mean as median for now
-                    mean=float(stats_row.mean) if stats_row.mean is not None else None,
-                    min=int(stats_row.min) if stats_row.min is not None else None,
-                    max=int(stats_row.max) if stats_row.max is not None else None,
+                    count=count,
+                    median=float(median),
+                    mean=float(mean),
+                    min=int(min_distance),
+                    max=int(max_distance),
                     method="exact"
                 )
             else:
@@ -2195,8 +2213,7 @@ async def get_global_hit_statistics(
                 detail=f"Stream with ID {stream_id} not found"
             )
 
-        # Calculate global statistics using SQL aggregation
-        # Use a simpler approach for SQLite compatibility
+        # Calculate global statistics - fetch all distances for proper median calculation
         global_stats_query = text("""
             WITH ordered_hits AS (
                 SELECT 
@@ -2214,22 +2231,33 @@ async def get_global_hit_statistics(
                 WHERE prev_nonce IS NOT NULL
             )
             SELECT 
-                (SELECT COUNT(*) FROM ordered_hits) as total_hits,
-                COUNT(*) as distance_count,
-                AVG(distance) as mean,
-                MIN(distance) as min,
-                MAX(distance) as max,
-                (SELECT MAX(nonce) FROM ordered_hits) as max_nonce
+                distance
             FROM distances
+            ORDER BY distance
         """)
 
         global_stats_result = await session.execute(global_stats_query, {
-            "stream_id": str(stream_id),
+            "stream_id": uuid_to_db_format(stream_id),
             "bucket_2dp": bucket_2dp
         })
-        global_stats_row = global_stats_result.first()
+        distances = [row.distance for row in global_stats_result.fetchall()]
 
-        if global_stats_row and global_stats_row.total_hits > 0:
+        if distances:
+            # Calculate statistics in Python for accuracy
+            count = len(distances)
+            mean = sum(distances) / count
+            min_distance = min(distances)
+            max_distance = max(distances)
+            
+            # Calculate proper median
+            sorted_distances = sorted(distances)
+            if count % 2 == 0:
+                # Even number of elements - average of middle two
+                median = (sorted_distances[count // 2 - 1] + sorted_distances[count // 2]) / 2
+            else:
+                # Odd number of elements - middle element
+                median = sorted_distances[count // 2]
+
             # Calculate theoretical ETA based on probability
             # For simplicity, use 1/probability approximation
             # This could be enhanced with actual probability tables
@@ -2241,16 +2269,15 @@ async def get_global_hit_statistics(
 
             # Simple confidence interval (placeholder)
             confidence_interval = None
-            if global_stats_row.distance_count > 2:
-                mean_val = float(global_stats_row.mean) if global_stats_row.mean else 0
-                confidence_interval = [mean_val * 0.8, mean_val * 1.2]
+            if count > 2:
+                confidence_interval = [mean * 0.8, mean * 1.2]
 
             global_stats = BucketStats(
-                count=global_stats_row.distance_count,
-                median=float(global_stats_row.mean) if global_stats_row.mean is not None else None,  # Use mean as median for now
-                mean=float(global_stats_row.mean) if global_stats_row.mean is not None else None,
-                min=int(global_stats_row.min) if global_stats_row.min is not None else None,
-                max=int(global_stats_row.max) if global_stats_row.max is not None else None,
+                count=count,
+                median=float(median),
+                mean=float(mean),
+                min=int(min_distance),
+                max=int(max_distance),
                 method="exact"
             )
         else:
@@ -2355,7 +2382,7 @@ async def get_batch_hits(
         # Use UNION ALL to combine results for all buckets in a single query
         bucket_queries = []
         query_params = {
-            "stream_id": str(stream_id),
+            "stream_id": uuid_to_db_format(stream_id),
             "after_nonce": after_nonce,
             "limit_per_bucket": limit_per_bucket
         }
@@ -2436,12 +2463,22 @@ async def get_batch_hits(
             distances = [hit.distance_prev for hit in hits_by_bucket[bucket_str] if hit.distance_prev is not None]
             
             if distances:
+                # Calculate proper median
+                sorted_distances = sorted(distances)
+                count = len(distances)
+                if count % 2 == 0:
+                    # Even number of elements - average of middle two
+                    median = (sorted_distances[count // 2 - 1] + sorted_distances[count // 2]) / 2
+                else:
+                    # Odd number of elements - middle element
+                    median = sorted_distances[count // 2]
+                
                 stats_by_bucket[bucket_str] = BucketStats(
-                    count=len(distances),
-                    median=float(sorted(distances)[len(distances) // 2]) if distances else None,
-                    mean=float(sum(distances) / len(distances)) if distances else None,
-                    min=min(distances) if distances else None,
-                    max=max(distances) if distances else None,
+                    count=count,
+                    median=float(median),
+                    mean=float(sum(distances) / count),
+                    min=min(distances),
+                    max=max(distances),
                     method="exact"
                 )
             else:

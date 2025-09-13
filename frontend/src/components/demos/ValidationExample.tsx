@@ -6,8 +6,8 @@ import {
   formatValidationWarnings,
   safeGetRunDetail,
   mergeWithDefaults
-} from '../lib/validation';
-import { validateApiResponse } from '../lib/api';
+} from '../../lib/validation';
+import { validateApiResponse } from '../../lib/api';
 
 // Example component to demonstrate validation utilities
 export const ValidationExample: React.FC = () => {

@@ -1,7 +1,7 @@
 import React from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { LiveBetTable } from "../LiveBetTable";
+import { LiveBetTable } from "../components/LiveBetTable";
 import type { BetRecord } from "@/lib/api";
 
 const mockBets: BetRecord[] = [

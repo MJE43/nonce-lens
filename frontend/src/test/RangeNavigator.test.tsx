@@ -6,7 +6,7 @@ import React from 'react';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { RangeNavigator } from '../RangeNavigator';
+import { RangeNavigator } from '../components/RangeNavigator';
 
 describe('RangeNavigator', () => {
   const defaultProps = {

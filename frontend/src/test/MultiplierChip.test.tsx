@@ -5,7 +5,7 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
-import { MultiplierChip } from '../MultiplierChip';
+import { MultiplierChip } from '../components/MultiplierChip';
 import { BucketStats } from '@/lib/analysisMath';
 
 // Mock stats data

@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, mockStreamSummary } from '@/test/utils'
-import StreamSummaryCard from '../StreamSummaryCard'
+import StreamSummaryCard from '../components/StreamSummaryCard'
 
 // Mock react-router-dom
 vi.mock('react-router-dom', async () => {
