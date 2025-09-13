@@ -1,185 +1,98 @@
-# Project Structure & Organization
+---
+inclusion: always
+---
 
-## Repository Layout
+# Project Structure & Code Organization
 
-```
-pump-web/
-├── pump-api/                 # FastAPI backend application
-├── pump-frontend/            # React frontend application
-├── docs/                     # Project documentation (PRD, SECURITY)
-├── .kiro/                    # Kiro AI assistant configuration (steering/specs)
-├── ai-rules/                 # Repo-specific AI rules
-└── README.md                 # Project overview
-```
+## Directory Structure Rules
 
-## Backend Structure (pump-api/)
+**Backend (backend/)**
+- Use `backend/` as root directory (not `pump-api/`)
+- Follow layered architecture: `app/models/`, `app/routers/`, `app/schemas/`, `app/engine/`
+- Place tests in `backend/tests/` with `test_` prefix
+- Database file: `backend/pump.db` (SQLite)
 
-```
-pump-api/
-├── app/
-│   ├── __init__.py
-│   ├── main.py              # FastAPI application entry point
-│   ├── db.py                # Database connection and setup
-│   ├── core/
-│   │   ├── __init__.py
-│   │   ├── config.py        # Settings and configuration
-│   │   └── rate_limiter.py  # Token-bucket rate limiter for ingestion
-│   ├── engine/
-│   │   ├── __init__.py
-│   │   └── pump.py          # Core Pump analysis algorithms
-│   ├── models/
-│   │   ├── __init__.py
-│   │   ├── runs.py          # SQLModel definitions for runs/hits
-│   │   └── live_streams.py  # SQLModel definitions for live streams
-│   ├── routers/
-│   │   ├── __init__.py
-│   │   ├── runs.py          # Run analysis endpoints
-│   │   ├── verify.py        # Single nonce verification
-│   │   └── live_streams.py  # Live stream ingestion/query endpoints
-│   └── schemas/
-│       ├── __init__.py
-│       ├── runs.py          # Pydantic request/response models
-│       └── live_streams.py  # Live stream API schemas
-├── tests/
-│   ├── test_pump_engine.py                 # Engine algorithm tests
-│   ├── test_api_e2e.py                     # End-to-end API tests
-│   ├── test_live_streams_integration.py    # Live streams integration
-│   ├── test_live_streams_minimal.py        # Minimal ingestion path
-│   ├── test_live_streams_models.py         # Model integrity
-│   └── test_live_streams_query_management.py # Query windowing/tail
-├── requirements.txt         # Python dependencies
-├── pytest.ini               # Test configuration
-└── pump.db                  # SQLite database file (local)
-```
+**Frontend (frontend/)**
+- Use `frontend/` as root directory (not `pump-frontend/`)
+- Components in `src/components/` with feature-based subdirectories
+- Pages in `src/pages/` for route-level components
+- Custom hooks in `src/hooks/`
+- API types in `src/types/`
 
-## Frontend Structure (pump-frontend/)
-
-```
-pump-frontend/
-├── src/
-│   ├── main.tsx             # Application entry point
-│   ├── App.tsx              # Root component with routing
-│   ├── index.css            # Global styles and Tailwind imports
-│   ├── lib/                 # API client, utils, analytics helpers
-│   ├── components/          # UI, layout, shared, live-streams widgets
-│   ├── pages/               # Runs & Live Streams pages
-│   ├── hooks/               # Data and UX hooks
-│   └── types/               # API and shared types
-├── public/                  # Static assets
-├── dist/                    # Build output directory
-├── node_modules/            # Dependencies
-├── .env.example             # Environment template
-├── package.json             # Dependencies and scripts
-├── tsconfig.json            # TypeScript configuration
-├── vite.config.ts           # Vite build configuration
-├── eslint.config.js         # ESLint config
-├── components.json          # shadcn/ui configuration
-└── tailwind.config.js       # Tailwind CSS configuration
-```
-
-## Key Architectural Patterns
-
-### Backend Organization
-
-**Router-Based Feature Modules**
-- Each major feature area has its own router (runs, verify, live_streams)
-- Routers are imported and included in main.py
-- Clear separation between different API concerns
-
-**Layered Architecture**
-- **Models**: SQLModel classes for database schema
-- **Schemas**: Pydantic models for API validation
-- **Routers**: FastAPI endpoints and request handling
-- **Engine**: Core business logic and algorithms
-
-**Database Layer**
-- Single db.py file manages connection and table creation
-- Models define relationships and constraints
-- Async database operations throughout
-
-### Frontend Organization
-
-**Page-Based Routing**
-- Each major view is a separate page component
-- Pages handle route-level logic and data fetching
-- Clear navigation structure between features
-
-**Component Hierarchy**
-- **Pages**: Route-level components with data fetching
-- **Components**: Reusable UI and business logic components
-- **UI**: Low-level design system components (shadcn/ui)
-- **Hooks**: Custom logic for data management and side effects
-
-**Type Safety**
-- Shared type definitions in types/ directory
-- API types mirror backend Pydantic schemas
-- End-to-end type safety from database to UI
-
-## File Naming Conventions
+## File Naming & Code Style
 
 ### Backend (Python)
-- **snake_case** for all Python files and directories
-- **PascalCase** for SQLModel and Pydantic class names
-- **UPPER_CASE** for constants and environment variables
-- Test files prefixed with `test_`
+- **snake_case** for files, functions, variables
+- **PascalCase** for classes (SQLModel, Pydantic)
+- **UPPER_CASE** for constants and env vars
+- Relative imports: `from .models.runs import Run`
+- Async/await throughout for database operations
 
 ### Frontend (TypeScript/React)
-- **PascalCase** for React components and pages
-- **camelCase** for hooks, utilities, and variables
-- **kebab-case** for CSS classes and file assets
-- **UPPER_CASE** for environment variables
+- **PascalCase** for components and pages
+- **camelCase** for hooks, utilities, variables
+- **kebab-case** for CSS classes
+- Use `@/` alias for internal imports: `import { Button } from '@/components/ui/button'`
+- Strict TypeScript with end-to-end type safety
 
-## Import Patterns
+## Architecture Patterns
 
-### Backend Imports
-```python
-# Relative imports within app
-from .models.runs import Run, Hit
-from .schemas.runs import RunCreate, RunDetail
-from .engine.pump import scan_pump, ENGINE_VERSION
+### Backend Patterns
+- **Router-based features**: Separate routers for runs, verify, live_streams
+- **Dependency injection**: Use FastAPI's DI for database sessions
+- **Layered separation**: Models (SQLModel) → Schemas (Pydantic) → Routers (FastAPI)
+- **Single database file**: `db.py` handles connection and table creation
 
-# External dependencies
-from fastapi import FastAPI, Depends, HTTPException
-from sqlmodel import Session, select
-```
+### Frontend Patterns
+- **Page-based routing**: Pages handle data fetching, components handle UI
+- **TanStack Query**: Use for all API calls with caching
+- **Component composition**: Reusable UI components with clear props
+- **Custom hooks**: Encapsulate data fetching and business logic
 
-### Frontend Imports
-```typescript
-// React and external libraries
-import React from 'react'
-import { useQuery } from '@tanstack/react-query'
+### Data Flow
+- Frontend → TanStack Query → FastAPI Router → Business Logic → Database
+- Real-time updates via `/tail` endpoints with `since_id` polling
+- Type safety from database models to UI components
 
-// Internal imports with @ alias
-import { Button } from '@/components/ui/button'
-import { useRuns } from '@/hooks/useRuns'
-import type { RunDetail } from '@/types/api'
-```
+## Key Conventions
 
-## Configuration Management
+### API Design
+- RESTful endpoints with clear resource naming
+- Pydantic validation for all requests/responses
+- Consistent error handling with HTTP status codes
+- Rate limiting for ingestion endpoints
 
-### Environment Variables
-- Backend: `.env` file with DATABASE_URL, CORS settings, tokens
-- Frontend: `.env` file with VITE_API_BASE for API endpoint
-- Both include `.env.example` templates for setup
+### Component Organization
+- Feature-based component directories (e.g., `live-streams/`)
+- Separate UI components from business logic
+- Use shadcn/ui for base components
+- Custom hooks for reusable logic
 
-### Build Configuration
-- Backend: `requirements.txt` for dependencies, `pytest.ini` for testing
-- Frontend: `package.json` scripts, `vite.config.ts` for build settings
-- TypeScript: Strict mode enabled with path aliases
+### Testing Strategy
+- Backend: pytest with async support, test all layers
+- Frontend: Vitest with React Testing Library
+- Integration tests for critical workflows
+- Test file naming: `test_*.py` or `*.test.ts`
 
-## Data Flow Patterns
+### Environment Configuration
+- Use `.env` files with `.env.example` templates
+- Backend: DATABASE_URL, CORS_ORIGINS, INGEST_TOKEN
+- Frontend: VITE_API_BASE for API endpoint
+- Never commit actual `.env` files
 
-### Request Flow
-1. Frontend makes API request via TanStack Query
-2. FastAPI router receives and validates request
-3. Business logic in engine/ or direct database operations
-4. Response formatted via Pydantic schemas
-5. Frontend updates UI with returned data
+## Development Workflow
 
-### Real-time Updates
-1. Frontend polls `/tail` endpoints with since_id parameter
-2. Backend returns incremental updates since last poll
-3. Frontend merges new data with existing state
-4. UI updates automatically via React state changes
+### Adding New Features
+1. Backend: Create model → schema → router → tests
+2. Frontend: Create types → hooks → components → pages
+3. Maintain type safety across the stack
+4. Update both `.env.example` files if new config needed
 
-This structure supports the local-first, single-user architecture while maintaining clear separation of concerns and enabling future enhancements like the live streams feature.
+### File Placement Rules
+- New backend endpoints: `app/routers/`
+- Database models: `app/models/`
+- API schemas: `app/schemas/`
+- Business logic: `app/engine/`
+- Frontend components: `src/components/[feature]/`
+- Reusable hooks: `src/hooks/`
+- Type definitions: `src/types/`
