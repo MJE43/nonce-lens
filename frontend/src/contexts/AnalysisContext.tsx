@@ -16,8 +16,6 @@ export interface AnalysisState {
   mode: AnalysisMode;
   streamId: string;
   focusedBucket: number | null;
-  currentRange: [number, number];
-  minMultiplier: number;
   pinnedBuckets: number[];
   
   // Data
@@ -33,8 +31,6 @@ type AnalysisAction =
   | { type: 'SET_MODE'; payload: AnalysisMode }
   | { type: 'SET_STREAM_ID'; payload: string }
   | { type: 'SET_FOCUSED_BUCKET'; payload: number | null }
-  | { type: 'SET_CURRENT_RANGE'; payload: [number, number] }
-  | { type: 'SET_MIN_MULTIPLIER'; payload: number }
   | { type: 'SET_PINNED_BUCKETS'; payload: number[] }
   | { type: 'ADD_PINNED_BUCKET'; payload: number }
   | { type: 'REMOVE_PINNED_BUCKET'; payload: number }
@@ -48,19 +44,16 @@ export interface AnalysisContextValue extends AnalysisState {
   setMode: (mode: AnalysisMode) => void;
   setStreamId: (streamId: string) => void;
   setFocusedBucket: (bucket: number | null) => void;
-  setCurrentRange: (range: [number, number]) => void;
-  setMinMultiplier: (min: number) => void;
   setPinnedBuckets: (buckets: number[]) => void;
   addPinnedBucket: (bucket: number) => void;
   removePinnedBucket: (bucket: number) => void;
-  jumpToRange: (startNonce: number) => void;
   setHits: (hits: HitRecord[]) => void;
   updateStats: (bucket: string, stats: BucketStats) => void;
   resetAnalysisData: () => void;
 }
 
-// Default range size (10k nonces)
-const DEFAULT_RANGE_SIZE = 10000;
+// Default pinned multipliers - the exact values you use most
+const DEFAULT_PINNED_BUCKETS = [1066.73, 3200.18, 11200.65, 48536.13];
 
 // Create initial state with proper scope label
 const createInitialState = (streamId: string): AnalysisState => {
@@ -68,9 +61,7 @@ const createInitialState = (streamId: string): AnalysisState => {
     mode: 'live',
     streamId,
     focusedBucket: null,
-    currentRange: [0, DEFAULT_RANGE_SIZE],
-    minMultiplier: 1,
-    pinnedBuckets: [],
+    pinnedBuckets: [...DEFAULT_PINNED_BUCKETS], // Pin default multipliers
     hits: [],
     distanceById: new Map(),
     statsByBucket: {},
@@ -89,17 +80,15 @@ function generateScopeLabel(state: AnalysisState): string {
     return 'Live Mode';
   }
 
-  const { focusedBucket, currentRange, hits } = state;
-  const [start, end] = currentRange;
-  const rangeLabel = `${(start / 1000).toFixed(0)}k–${(end / 1000).toFixed(0)}k`;
+  const { focusedBucket, hits } = state;
   
   if (focusedBucket) {
     const bucketLabel = `${(focusedBucket / 1000).toFixed(1)}kx`;
     const hitCount = hits.length;
-    return `${hitCount} hits • nonce ${rangeLabel} • bucket ${bucketLabel}`;
+    return `${hitCount} hits • Full Stream • ${bucketLabel}`;
   }
   
-  return `nonce ${rangeLabel}`;
+  return 'Full Stream Analysis';
 }
 
 // Compute pre-computed stats for all pinned buckets
@@ -164,22 +153,9 @@ function analysisReducer(state: AnalysisState, action: AnalysisAction): Analysis
       };
     }
 
-    case 'SET_CURRENT_RANGE': {
-      const newState = {
-        ...state,
-        currentRange: action.payload,
-      };
-      return {
-        ...newState,
-        scopeLabel: generateScopeLabel(newState),
-      };
-    }
 
-    case 'SET_MIN_MULTIPLIER':
-      return {
-        ...state,
-        minMultiplier: action.payload,
-      };
+
+
 
     case 'SET_PINNED_BUCKETS': {
       const newState = {
@@ -320,13 +296,9 @@ export const AnalysisProvider: React.FC<AnalysisProviderProps> = ({
     dispatch({ type: 'SET_FOCUSED_BUCKET', payload: bucket });
   }, []);
 
-  const setCurrentRange = useCallback((range: [number, number]) => {
-    dispatch({ type: 'SET_CURRENT_RANGE', payload: range });
-  }, []);
 
-  const setMinMultiplier = useCallback((min: number) => {
-    dispatch({ type: 'SET_MIN_MULTIPLIER', payload: min });
-  }, []);
+
+
 
   const setPinnedBuckets = useCallback((buckets: number[]) => {
     dispatch({ type: 'SET_PINNED_BUCKETS', payload: buckets });
@@ -340,10 +312,7 @@ export const AnalysisProvider: React.FC<AnalysisProviderProps> = ({
     dispatch({ type: 'REMOVE_PINNED_BUCKET', payload: bucket });
   }, []);
 
-  const jumpToRange = useCallback((startNonce: number) => {
-    const endNonce = startNonce + DEFAULT_RANGE_SIZE;
-    dispatch({ type: 'SET_CURRENT_RANGE', payload: [startNonce, endNonce] });
-  }, []);
+
 
   const setHits = useCallback((hits: HitRecord[]) => {
     dispatch({ type: 'SET_HITS', payload: hits });
@@ -363,12 +332,9 @@ export const AnalysisProvider: React.FC<AnalysisProviderProps> = ({
     setMode,
     setStreamId,
     setFocusedBucket,
-    setCurrentRange,
-    setMinMultiplier,
     setPinnedBuckets,
     addPinnedBucket,
     removePinnedBucket,
-    jumpToRange,
     setHits,
     updateStats,
     resetAnalysisData,
@@ -377,12 +343,9 @@ export const AnalysisProvider: React.FC<AnalysisProviderProps> = ({
     setMode,
     setStreamId,
     setFocusedBucket,
-    setCurrentRange,
-    setMinMultiplier,
     setPinnedBuckets,
     addPinnedBucket,
     removePinnedBucket,
-    jumpToRange,
     setHits,
     updateStats,
     resetAnalysisData,

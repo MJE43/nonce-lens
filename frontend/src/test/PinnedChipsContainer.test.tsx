@@ -5,7 +5,7 @@
 import React from 'react';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { PinnedChipsContainer } from '../PinnedChipsContainer';
+import { PinnedChipsContainer } from '../components/PinnedChipsContainer';
 import { BucketStats } from '@/lib/analysisMath';
 
 // Mock sessionStorage

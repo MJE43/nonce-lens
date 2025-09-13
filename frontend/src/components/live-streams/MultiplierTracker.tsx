@@ -8,18 +8,12 @@
  * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import {
-  Target,
-  Clock,
-  Eye,
-  X,
-  Plus
-} from 'lucide-react';
-import type { PinnedMultiplier } from '@/hooks/useAnalyticsState';
+import React, { useState, useCallback, useMemo } from "react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Target, Clock, Eye, X, Plus } from "lucide-react";
+import type { PinnedMultiplier } from "@/hooks/useAnalyticsState";
 
 export interface MultiplierTrackerProps {
   /** Currently pinned multipliers with their stats */
@@ -27,7 +21,7 @@ export interface MultiplierTrackerProps {
   /** Available multipliers from stream's distinct values */
   streamMultipliers: number[];
   /** Stream difficulty for preset multiplier suggestions */
-  difficulty?: 'easy' | 'medium' | 'hard' | 'expert';
+  difficulty?: "easy" | "medium" | "hard" | "expert";
   /** Callback to pin a multiplier */
   onPin: (multiplier: number) => void;
   /** Callback to unpin a multiplier */
@@ -40,7 +34,7 @@ export interface MultiplierTrackerProps {
 
 // Difficulty-aware preset multipliers (from existing table values)
 const DIFFICULTY_PRESETS: Record<
-  'easy' | 'medium' | 'hard' | 'expert',
+  "easy" | "medium" | "hard" | "expert",
   number[]
 > = {
   easy: [
@@ -64,45 +58,102 @@ const DIFFICULTY_PRESETS: Record<
 // Theoretical probability tables (1/probability for ETA calculation)
 // These would ideally come from the backend, but for now we'll use approximations
 const THEORETICAL_PROBABILITIES: Record<
-  'easy' | 'medium' | 'hard' | 'expert',
+  "easy" | "medium" | "hard" | "expert",
   Record<number, number>
 > = {
   easy: {
-    1.02: 1/0.98, 1.11: 1/0.90, 1.29: 1/0.78, 1.53: 1/0.65, 1.75: 1/0.57,
-    2.0: 1/0.50, 2.43: 1/0.41, 3.05: 1/0.33, 3.5: 1/0.29, 4.08: 1/0.25,
-    5.0: 1/0.20, 6.25: 1/0.16, 8.0: 1/0.125, 12.25: 1/0.082, 24.5: 1/0.041
+    1.02: 1 / 0.98,
+    1.11: 1 / 0.9,
+    1.29: 1 / 0.78,
+    1.53: 1 / 0.65,
+    1.75: 1 / 0.57,
+    2.0: 1 / 0.5,
+    2.43: 1 / 0.41,
+    3.05: 1 / 0.33,
+    3.5: 1 / 0.29,
+    4.08: 1 / 0.25,
+    5.0: 1 / 0.2,
+    6.25: 1 / 0.16,
+    8.0: 1 / 0.125,
+    12.25: 1 / 0.082,
+    24.5: 1 / 0.041,
   },
   medium: {
-    1.11: 1/0.90, 1.46: 1/0.68, 1.69: 1/0.59, 1.98: 1/0.51, 2.33: 1/0.43,
-    2.76: 1/0.36, 3.31: 1/0.30, 4.03: 1/0.25, 4.95: 1/0.20, 7.87: 1/0.127,
-    10.25: 1/0.098, 13.66: 1/0.073, 18.78: 1/0.053, 26.83: 1/0.037,
-    38.76: 1/0.026, 64.4: 1/0.016, 112.7: 1/0.009, 225.4: 1/0.004,
-    563.5: 1/0.002, 2254.0: 1/0.0004
+    1.11: 1 / 0.9,
+    1.46: 1 / 0.68,
+    1.69: 1 / 0.59,
+    1.98: 1 / 0.51,
+    2.33: 1 / 0.43,
+    2.76: 1 / 0.36,
+    3.31: 1 / 0.3,
+    4.03: 1 / 0.25,
+    4.95: 1 / 0.2,
+    7.87: 1 / 0.127,
+    10.25: 1 / 0.098,
+    13.66: 1 / 0.073,
+    18.78: 1 / 0.053,
+    26.83: 1 / 0.037,
+    38.76: 1 / 0.026,
+    64.4: 1 / 0.016,
+    112.7: 1 / 0.009,
+    225.4: 1 / 0.004,
+    563.5: 1 / 0.002,
+    2254.0: 1 / 0.0004,
   },
   hard: {
-    1.23: 1/0.81, 1.55: 1/0.65, 1.98: 1/0.51, 2.56: 1/0.39, 3.36: 1/0.30,
-    4.48: 1/0.22, 6.08: 1/0.16, 8.41: 1/0.12, 11.92: 1/0.084, 17.0: 1/0.059,
-    26.01: 1/0.038, 40.49: 1/0.025, 65.74: 1/0.015, 112.7: 1/0.009,
-    206.62: 1/0.005, 413.23: 1/0.002, 929.77: 1/0.001, 2479.4: 1/0.0004,
-    8677.9: 1/0.0001, 52067.4: 1/0.00002
+    1.23: 1 / 0.81,
+    1.55: 1 / 0.65,
+    1.98: 1 / 0.51,
+    2.56: 1 / 0.39,
+    3.36: 1 / 0.3,
+    4.48: 1 / 0.22,
+    6.08: 1 / 0.16,
+    8.41: 1 / 0.12,
+    11.92: 1 / 0.084,
+    17.0: 1 / 0.059,
+    26.01: 1 / 0.038,
+    40.49: 1 / 0.025,
+    65.74: 1 / 0.015,
+    112.7: 1 / 0.009,
+    206.62: 1 / 0.005,
+    413.23: 1 / 0.002,
+    929.77: 1 / 0.001,
+    2479.4: 1 / 0.0004,
+    8677.9: 1 / 0.0001,
+    52067.4: 1 / 0.00002,
   },
   expert: {
-    1.63: 1/0.61, 2.8: 1/0.36, 4.95: 1/0.20, 9.08: 1/0.11, 17.34: 1/0.058,
-    34.68: 1/0.029, 73.21: 1/0.014, 164.72: 1/0.006, 400.02: 1/0.0025,
-    1066.73: 1/0.0009, 3200.18: 1/0.0003, 11200.65: 1/0.00009,
-    48536.13: 1/0.00002, 291216.8: 1/0.000003, 3203384.8: 1/0.0000003
-  }
+    1.63: 1 / 0.61,
+    2.8: 1 / 0.36,
+    4.95: 1 / 0.2,
+    9.08: 1 / 0.11,
+    17.34: 1 / 0.058,
+    34.68: 1 / 0.029,
+    73.21: 1 / 0.014,
+    164.72: 1 / 0.006,
+    400.02: 1 / 0.0025,
+    1066.73: 1 / 0.0009,
+    3200.18: 1 / 0.0003,
+    11200.65: 1 / 0.00009,
+    48536.13: 1 / 0.00002,
+    291216.8: 1 / 0.000003,
+    3203384.8: 1 / 0.0000003,
+  },
 };
 
 /**
  * Get multiplier color based on value
  */
 const getMultiplierColor = (multiplier: number): string => {
-  if (multiplier >= 1000) return 'text-yellow-400 border-yellow-400/30 bg-yellow-400/10';
-  if (multiplier >= 100) return 'text-orange-400 border-orange-400/30 bg-orange-400/10';
-  if (multiplier >= 10) return 'text-blue-400 border-blue-400/30 bg-blue-400/10';
-  if (multiplier >= 2) return 'text-green-400 border-green-400/30 bg-green-400/10';
-  return 'text-slate-400 border-slate-400/30 bg-slate-400/10';
+  if (multiplier >= 1000)
+    return "text-yellow-400 border-yellow-400/30 bg-yellow-400/10";
+  if (multiplier >= 100)
+    return "text-orange-400 border-orange-400/30 bg-orange-400/10";
+  if (multiplier >= 10)
+    return "text-blue-400 border-blue-400/30 bg-blue-400/10";
+  if (multiplier >= 2)
+    return "text-green-400 border-green-400/30 bg-green-400/10";
+  return "text-slate-400 border-slate-400/30 bg-slate-400/10";
 };
 
 /**

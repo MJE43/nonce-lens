@@ -7,8 +7,8 @@
 import React, { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { BucketStats } from '@/lib/analysisMath';
-import { PinnedChipsContainer } from './PinnedChipsContainer';
-import { MultiplierChip } from './MultiplierChip';
+import { PinnedChipsContainer } from '../PinnedChipsContainer';
+import { MultiplierChip } from '../MultiplierChip';
 
 // Mock stats data for demo
 const mockStatsByPinnedBuckets: Record<string, BucketStats> = {

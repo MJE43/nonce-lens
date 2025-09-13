@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { render, mockBetRecord } from '@/test/utils'
-import LiveBetTable from '../LiveBetTable'
+import LiveBetTable from '../components/LiveBetTable'
 
 describe('LiveBetTable', () => {
   const user = userEvent.setup()
